@@ -379,10 +379,17 @@ bool SyslogLogger::logmsg(LoggingItem *item)
         else
             shortname = lev->shortname;
     }
-    syslog(item->level() | item->facility(), "%s[%d]: %c %s %s:%d (%s) %s",
-           item->rawAppName(), item->pid(), shortname, item->rawThreadName(),
-           item->rawFile(), item->line(), item->rawFunction(),
-           item->rawMessage());
+
+    QStringList messages = QString(item->rawMessage()).split('\n');
+    for (QStringList::Iterator it = messages.begin();
+           it != messages.end(); ++it )
+    {
+        syslog(item->level() | item->facility(), "%s[%d]: %c %s %s:%d (%s) %s",
+               item->rawAppName(), item->pid(), shortname, item->rawThreadName(),
+               item->rawFile(), item->line(), item->rawFunction(),
+               (*it).toStdString().c_str());
+    }
+
 
     return true;
 }
