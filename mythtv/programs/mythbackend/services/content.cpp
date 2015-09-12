@@ -667,6 +667,30 @@ QFileInfo Content::GetMusic( int nId )
                            .arg( sBasePath )
                            .arg( query.value(0).toString() );
         }
+        query.prepare("SELECT UNIX_TIMESTAMP(NOW())-UNIX_TIMESTAMP(IF(lastplay,lastplay,0)) "
+                      "FROM music_songs "
+                      "WHERE music_songs.song_id = :KEY");
+        query.bindValue(":KEY", nId );
+        query.exec();
+
+        int update_lastplay = 0;
+
+        if (query.isActive() && query.size() > 0)
+        {
+            query.first();
+            update_lastplay = query.value(0).toInt();
+        }
+
+        if (update_lastplay > 300)
+        {
+            LOG(VB_UPNP, LOG_INFO, QString("MythXML::ProcessRequest increase play counter for id %1").arg(nId));
+            query.prepare("UPDATE music_songs "
+                          "SET numplays = numplays + 1, "
+                            "lastplay = NOW() "
+                          "WHERE music_songs.song_id = :KEY");
+            query.bindValue(":KEY", nId );
+            query.exec();
+        }
     }
 
     // ----------------------------------------------------------------------
