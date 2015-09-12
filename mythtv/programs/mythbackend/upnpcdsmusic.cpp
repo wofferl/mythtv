@@ -52,7 +52,7 @@ UPnpCDSRootInfo UPnpCDSMusic::g_RootNodes[] =
           "1 as children "
             "FROM music_songs song "
             "%1 "
-            "ORDER BY name",
+            "ORDER BY sum( song.numplays ) LIMIT 50 ",
         "", "name" },
 
 #if 0
