@@ -1044,6 +1044,8 @@ bool HTTPRequest::ParseRequest()
             return false;
         }
 
+        // workaround for reciva radio
+        sRequestLine.replace("&quest;","?");
         // -=>TODO: Should read lines until a valid request???
 
         ProcessRequestLine( sRequestLine );

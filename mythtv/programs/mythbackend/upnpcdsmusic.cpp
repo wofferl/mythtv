@@ -309,7 +309,8 @@ void UPnpCDSMusic::AddItem( const UPnpCDSRequest    *pRequest,
                             .arg( sServerIp )
                             .arg( sPort     );
 
-    QString sURIParams = QString( "?Id=%1" )
+    // send &quest; as workaround for reciva radio
+    QString sURIParams = QString( "&quest;Id=%1" )
                             .arg( nId );
 
 
