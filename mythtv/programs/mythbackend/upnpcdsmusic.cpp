@@ -69,7 +69,64 @@ UPnpCDSRootInfo UPnpCDSMusic::g_RootNodes[] =
             "ORDER BY name",
         "WHERE (DATEDIFF( CURDATE(), date_modified ) <= 30 ) ", "" },
 #endif
+    {   "Playlists",
+            "playlist.playlist_id",
+            "SELECT p.playlist_id as id, "
+              "p.playlist_name as name, "
+              " count( song.song_id ) as children "
+                "FROM music_playlists p join music_songs song on FIND_IN_SET(song.song_id, p.playlist_songs) "
+                "WHERE p.playlist_name NOT LIKE '%storage' "
+                "%1 "
+                "GROUP BY p.playlist_id "
+                "ORDER BY p.playlist_name ",
+            "AND FIND_IN_SET(song.song_id, (:KEY))" },
 
+    {   "Top Played Albums",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "a.album_name as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.album_id "
+                "ORDER BY sum( song.numplays ) DESC LIMIT 50 ",
+            "WHERE song.album_id=:KEY" },
+
+    {   "Least Played Albums",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "a.album_name as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.album_id "
+                "ORDER BY sum( song.numplays ) LIMIT 50 ",
+            "WHERE song.album_id=:KEY" },
+
+    {   "Recently Played Albums",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "a.album_name as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.album_id "
+                "ORDER BY song.lastplay DESC LIMIT 50 ",
+            "WHERE song.album_id=:KEY" },
+    {   "Recently Added Albums",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "a.album_name as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.album_id "
+                "ORDER BY song.date_entered DESC LIMIT 50 ",
+            "WHERE song.album_id=:KEY" },
     {   "By Album",
         "song.album_id",
         "SELECT a.album_id as id, "
@@ -80,7 +137,179 @@ UPnpCDSRootInfo UPnpCDSMusic::g_RootNodes[] =
             "GROUP BY a.album_id "
             "ORDER BY a.album_name",
         "WHERE song.album_id=:KEY", "album.album_name" },
+    {   "Top Played Artists",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.artist_id "
+                "ORDER BY sum( song.numplays ) DESC LIMIT 50 ",
+            "WHERE song.artist_id=:KEY" },
+    {   "Top Played Artists",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.artist_id "
+                "ORDER BY sum( song.numplays ) DESC LIMIT 50 ",
+            "WHERE song.artist_id=:KEY" },
 
+    {   "Least Played Artists",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.artist_id "
+                "ORDER BY sum( song.numplays ) LIMIT 50 ",
+            "WHERE song.artist_id=:KEY" },
+
+    {   "Random Artists",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY song.artist_id "
+                "ORDER BY RAND() ",
+            "WHERE song.artist_id=:KEY" },
+        {   "By Album A-F",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.album_name REGEXP '^[A-F]' "
+                "%1 "
+                "GROUP BY SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) "
+                "ORDER BY a.album_name",
+            "AND song.album_id=:KEY " },
+
+        {   "By Album G-L",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.album_name REGEXP '^[G-L]' "
+                "%1 "
+                "GROUP BY SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) "
+                "ORDER BY a.album_name",
+            "AND song.album_id=:KEY " },
+
+        {   "By Album M-R",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.album_name REGEXP '^[M-R]' "
+                "%1 "
+                "GROUP BY SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) "
+                "ORDER BY a.album_name",
+            "AND song.album_id=:KEY " },
+
+        {   "By Album S-Z",
+            "song.album_id",
+            "SELECT a.album_id as id, "
+              "SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) as name, "
+              "count( song.album_id ) as children "
+                "FROM music_songs song join music_albums a on a.album_id = song.album_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.album_name REGEXP '^[S-Z]' "
+                "%1 "
+                "GROUP BY SUBSTRING_INDEX(SUBSTRING_INDEX(d.path,'/',3),'/',-1) "
+                "ORDER BY a.album_name",
+            "AND song.album_id=:KEY " },
+
+        {   "By Artist A-F",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.artist_name REGEXP '^[A-F]' "
+                "%1 "
+                "GROUP BY  a.artist_id "
+                "ORDER BY a.artist_name",
+            "AND song.artist_id=:KEY" },
+
+        {   "By Artist G-L",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.artist_name REGEXP '^[G-L]' "
+                "%1 "
+                "GROUP BY  a.artist_id "
+                "ORDER BY a.artist_name",
+            "AND song.artist_id=:KEY" },
+
+        {   "By Artist M-R",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.artist_name REGEXP '^[M-R]' "
+                "%1 "
+                "GROUP BY  a.artist_id "
+                "ORDER BY a.artist_name",
+            "AND song.artist_id=:KEY" },
+        {   "By Artist S-Z",
+            "song.artist_id",
+            "SELECT a.artist_id as id, "
+              "a.artist_name as name, "
+              "count( song.artist_id ) as children "
+                "FROM music_songs song join music_artists a on a.artist_id = song.artist_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "WHERE a.artist_name REGEXP '^[S-Z]' "
+                "%1 "
+                "GROUP BY  a.artist_id "
+                "ORDER BY a.artist_name",
+            "AND song.artist_id=:KEY" },
+
+    {   "By Genre",
+            "song.genre_id",
+            "SELECT g.genre_id as id, "
+              "g.genre as name, "
+              "count( song.genre_id ) as children "
+                "FROM music_songs song join music_genres g on g.genre_id = song.genre_id "
+                "join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY g.genre_id "
+                "ORDER BY sum( g.genre ) DESC LIMIT 50 ",
+            "WHERE song.genre_id=:KEY" },
+
+    {   "By Directory",
+            "directory_id",
+            "SELECT d.directory_id as id, "
+            "IF( path REGEXP '^[^/]+/[^/]+/[^/]+$',SUBSTRING_INDEX(SUBSTRING_INDEX(path,'/',3),'/',-2), "
+                                                  "SUBSTRING_INDEX(SUBSTRING_INDEX(path,'/',4),'/',-3)) "
+                "as name, "
+              "count( song.directory_id ) as children "
+                "FROM music_songs song join music_directories d on d.directory_id = song.directory_id "
+                "%1 "
+                "GROUP BY d.directory_id "
+                "ORDER BY d.path",
+            "WHERE song.directory_id=:KEY" },
 #if 0
     {   "By Artist",
         "artist_id",
@@ -136,23 +365,40 @@ int UPnpCDSMusic::GetRootCount()
 
 QString UPnpCDSMusic::GetTableName( QString sColumn )
 {
-    return "music_songs song";
+    QString sTableName = "";
+
+    if(sColumn.startsWith("playlist"))
+    {
+        sTableName = "music_playlists playlist";
+    }
+    else
+    {
+        sTableName = "music_songs song";
+    }
+    return sTableName;
 }
 
 /////////////////////////////////////////////////////////////////////////////
 //
 /////////////////////////////////////////////////////////////////////////////
 
-QString UPnpCDSMusic::GetItemListSQL( QString /* sColumn */ )
+QString UPnpCDSMusic::GetItemListSQL( QString sColumn )
 {
-    return "SELECT song.song_id as intid, artist.artist_name as artist, "     \
-           "album.album_name as album, song.name as title, "                  \
-           "genre.genre, song.year, song.track as tracknum, "                 \
-           "song.description, song.filename, song.length, song.size "         \
-           "FROM music_songs song "                                           \
-           " join music_artists artist on artist.artist_id = song.artist_id " \
-           " join music_albums album on album.album_id = song.album_id "      \
-           " join music_genres genre on  genre.genre_id = song.genre_id ";
+    QString sItemListSQL = "";
+
+    sItemListSQL = "SELECT song.song_id as intid, artist.artist_name as artist, "         \
+                       "album.album_name as album, song.name as title, "                  \
+                       "genre.genre, song.year, song.track as tracknum, "                 \
+                       "song.description, song.filename, song.length "                    \
+                    "FROM music_songs song "                                              \
+                       " join music_artists artist on artist.artist_id = song.artist_id " \
+                       " join music_albums album on album.album_id = song.album_id "      \
+                       " join music_genres genre on  genre.genre_id = song.genre_id ";
+
+    if(sColumn.startsWith("playlist"))
+        sItemListSQL.append(" join music_playlists playlist on FIND_IN_SET(song.song_id, playlist.playlist_songs) ");
+
+    return sItemListSQL;
 }
 
 /////////////////////////////////////////////////////////////////////////////

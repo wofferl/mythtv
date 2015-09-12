@@ -1187,11 +1187,13 @@ UPnpCDSExtensionResults *
                 QString sSQL = pInfo->sql;
 
                 sSQL.remove( "%1" );
-                sSQL += QString( " LIMIT %2, %3" )
-                           .arg( pRequest->m_nStartingIndex  )
-                           .arg( pRequest->m_nRequestedCount );
+                if (!sSQL.indexOf("LIMIT"))
+                    sSQL += QString( " LIMIT %2, %3" )
+                               .arg( pRequest->m_nStartingIndex  )
+                               .arg( pRequest->m_nRequestedCount );
 
                 query.prepare( sSQL );
+                LOG(VB_UPNP, LOG_INFO, QString("SQL %1").arg(sSQL));
 
                 if (query.exec())
                 {
@@ -1283,8 +1285,14 @@ int UPnpCDSExtension::GetCount( const QString &sColumn, const QString &sKey )
 
     if (query.isConnected())
     {
-        QString sSQL = QString("SELECT count( %1 ) FROM %2")
-                       .arg( sColumn ).arg( GetTableName( sColumn ) );
+        QString sSQL;
+        if(QString(sColumn).startsWith("playlist")){
+            sSQL = QString("SELECT songcount FROM %2")
+                           .arg( GetTableName( sColumn ) );
+        } else {
+            sSQL = QString("SELECT count( %1 ) FROM %2")
+                           .arg( sColumn ).arg( GetTableName( sColumn ) );
+        }
 
         if ( sKey.length() )
             sSQL += " WHERE " + sColumn + " = :KEY";
@@ -1339,6 +1347,15 @@ void UPnpCDSExtension::CreateItems( UPnpCDSRequest          *pRequest,
         {
            sWhere = QString( "WHERE %1=:KEY " )
                        .arg( pInfo->column );
+
+           if(QString(pInfo->column).startsWith("playlist"))
+           {
+               if(QString(pInfo->title).endsWith("(Random)")){
+                   sWhere += "ORDER BY RAND() ";
+               } else {
+                   sWhere += "ORDER BY FIND_IN_SET(song.song_id, playlist.playlist_songs) ";
+               }
+           }
         }
 
         QString orderColumn( pInfo->orderColumn );
