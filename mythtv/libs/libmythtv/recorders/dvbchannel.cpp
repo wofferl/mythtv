@@ -770,6 +770,13 @@ bool DVBChannel::Tune(const DTVMultiplex &tuning,
             CheckFrequency(intermediate_freq);
         }
 
+        // shift frequency
+        if (frontend_name == "ST STV0297 DVB-C"){
+            intermediate_freq = tuning.frequency - 250000;
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("Shift frequency for %1 from %2 to %3").arg(frontend_name).arg(tuning.frequency).arg(intermediate_freq));
+        }
+
 #if DVB_API_VERSION >=5
         if (DTVTunerType::kTunerTypeDVBS2 == tunerType ||
             DTVTunerType::kTunerTypeDVBT2 == tunerType)
@@ -1317,6 +1324,8 @@ static struct dvb_frontend_parameters dtvmultiplex_to_dvbparams(
 
     if (DTVTunerType::kTunerTypeDVBC == tuner_type)
     {
+        if(intermediate_freq > 0)
+            params.frequency = intermediate_freq;
         params.u.qam.symbol_rate  = tuning.symbolrate;
         params.u.qam.fec_inner    = (fe_code_rate_t) (int) tuning.fec;
         params.u.qam.modulation   = (fe_modulation_t) (int) tuning.modulation;
