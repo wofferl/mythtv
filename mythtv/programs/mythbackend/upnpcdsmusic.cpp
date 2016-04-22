@@ -817,7 +817,8 @@ bool UPnpCDSMusic::LoadTracks(const UPnpCDSRequest *pRequest,
         QString sProtocol = DLNA::ProtocolInfoString(UPNPProtocol::kHTTP,
                                                      sMimeType);
 
-        Resource *pResource = pItem->AddResource( sProtocol, resURI.toEncoded() );
+        // replace ? with %quest; as workaround for reciva radio
+        Resource *pResource = pItem->AddResource( sProtocol, resURI.toEncoded().replace("?","&quest;") );
 
         pResource->AddAttribute( "duration" , UPnPDateTime::resDurationFormat(nLengthMS) );
         if (nFileSize > 0)
