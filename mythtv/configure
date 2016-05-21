@@ -7242,11 +7242,13 @@ int main(void) { return 1; }
 EOF
 
 if enabled systemd_notify ; then
-   if check_pkg_config libsystemd-daemon systemd/sd-daemon.h sd_notify ; then
+    if check_pkg_config libsystemd-daemon systemd/sd-daemon.h sd_notify ; then
         require_pkg_config libsystemd-daemon systemd/sd-daemon.h sd_notify
-   else
+    elif check_pkg_config libsystemd systemd/sd-daemon.h sd_notify ; then
+        require_pkg_config libsystemd systemd/sd-daemon.h sd_notify
+    else
         disable systemd_notify
-   fi
+    fi
 fi
 
 # Check that all MythTV build "requirements" are met:
@@ -7349,7 +7351,7 @@ enabled libass && check_lib2 ass/ass.h ass_flush_events -lass || disable libass
 
 if enabled libcec ; then
     if pkg-config --exists libcec; then
-        libcec_path=`pkg-config --cflags libcec`
+        libcec_path=`pkg-config --variable includedir libcec`
     else
         check_cxx -I"$libcec_path" <<EOF || { disable libcec; }
 #include <libcec/cec.h>
