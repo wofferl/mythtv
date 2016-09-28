@@ -136,6 +136,7 @@ Advanced options (experts only):
   --disable-openmax        disable OpenMAX hardware accelerated video decoding
   --disable-dxva2          disable hardware accelerated decoding on windows
   --disable-opengl-video   disable OpenGL based video display
+  --disable-opengl-themepainter disable OpenGL based theme painting
   --disable-libass         disable libass SSA/ASS subtitle support
   --disable-systemd_notify disable systemd notify support
 
@@ -2344,6 +2345,7 @@ MYTHTV_CONFIG_LIST='
     mheg
     opengl
     opengl_video
+    opengl_themepainter
     qtwebkit
     qtscript
     qtdbus
@@ -3365,6 +3367,7 @@ mythtranscode_deps="backend frontend"
 opengl_deps_any="agl_h GL_gl_h EGL_egl_h GLES2_gl2_h darwin windows x11"
 opengles_deps="GLES2_gl2_h"
 opengl_video_deps="opengl"
+opengl_themepainter_deps="opengl"
 v4l2_deps="backend linux_videodev2_h"
 v4l1_deps="backend v4l2 linux_videodev_h"
 xrandr_deps="x11"
@@ -3538,6 +3541,7 @@ enable mythtranscode
 enable opengl
 enable opengles
 enable opengl_video
+enable opengl_themepainter
 enable symbol_visibility
 enable v4l1
 enable v4l2
@@ -6521,17 +6525,26 @@ check_type "vdpau/vdpau.h" "VdpPictureInfoHEVC"
 check_cpp_condition windows.h "!WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)" && enable winrt || disable winrt
 
 # check for OpenMAX header & lib
-if ! disabled openmax; then
-    check_header 'OMX_Core.h' && enable openmax
+if  enabled openmax ; then
+    openmax_was_enabled=Y
 fi
 if ! disabled openmax; then
-    if check_lib 'OMX_Broadcom.h' OMX_Init -L/opt/vc/lib -lopenmaxil; then
+    test -f /opt/vc/include/IL/OMX_Core.h && enable openmax
+fi
+if ! disabled openmax; then
+    if test -f /opt/vc/include/IL/OMX_Broadcom.h \
+        && test -f /opt/vc/lib/libopenmaxil.so ; then
         enable openmax_broadcom
-    elif check_lib 'bellagio/omxcore.h' OMX_Init -lomxil-bellagio; then
+    elif test -f /usr/include/bellagio/omxcore.h \
+        && test -f /usr/lib/libomxil-bellagio.so; then
         enable openmax_bellagio
     else
         disable openmax
     fi
+fi
+
+if  test "$openmax_was_enabled" = "Y" && disabled openmax ; then
+    die "ERROR - Unable to enable openmax"
 fi
 
 if ! disabled w32threads && ! enabled pthreads; then
@@ -8030,8 +8043,13 @@ if enabled x11 ; then
   echo "VAAPI support             ${vaapi-no}"
   echo "CrystalHD support         ${crystalhd-no}"
   echo "OpenMAX support           ${openmax-no}"
+  if enabled openmax ; then
+    echo "OpenMAX Broadcom          ${openmax_broadcom-no}"
+    echo "OpenMAX Bellagio          ${openmax_bellagio-no}"
+  fi
 fi
   echo "OpenGL video              ${opengl_video-no}"
+  echo "OpenGL ThemePainter       ${opengl_themepainter-no}"
   if test x"$target_os" = x"darwin" ; then
     echo "VDA support               ${vda-no}"
   fi

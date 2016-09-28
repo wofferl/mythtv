@@ -77,14 +77,14 @@ QStringList VBox::doUPNPSearch(void)
 
     if (!vboxes)
     {
-        LOG(VB_GENERAL, LOG_INFO, LOC + "No UPnP VBoxes found");
+        LOG(VB_GENERAL, LOG_DEBUG, LOC + "No UPnP VBoxes found");
         return QStringList();
     }
 
     int count = vboxes->Count();
     if (count)
     {
-        LOG(VB_GENERAL, LOG_INFO, LOC +
+        LOG(VB_GENERAL, LOG_DEBUG, LOC +
             QString("Found %1 possible VBoxes").arg(count));
     }
     else
@@ -110,7 +110,7 @@ QStringList VBox::doUPNPSearch(void)
         QString ip = BE->GetDeviceDesc()->m_HostUrl.host();
         int port = BE->GetDeviceDesc()->m_HostUrl.port();
 
-        LOG(VB_GENERAL, LOG_INFO, LOC + QString("Found possible VBox at %1 (%2:%3)").arg(friendlyName).arg(ip).arg(port));
+        LOG(VB_GENERAL, LOG_DEBUG, LOC + QString("Found possible VBox at %1 (%2:%3)").arg(friendlyName).arg(ip).arg(port));
 
         if (friendlyName.startsWith("VBox"))
         {
@@ -246,7 +246,7 @@ bool VBox::checkVersion(QString &version)
         sList = version.split('.');
 
         // sanity check this looks like a VBox version string
-        if (sList.count() != 3 || !version.startsWith("VB."))
+        if (sList.count() != 3 || !(version.startsWith("VB.") || version.startsWith("VJ.")))
         {
             LOG(VB_GENERAL, LOG_INFO, LOC + QString("Failed to parse version from %1").arg(version));
             delete xmlDoc;

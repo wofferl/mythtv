@@ -306,12 +306,12 @@ static bool comp_recstart(RecordingInfo *a, RecordingInfo *b)
 {
     if (a->GetRecordingStartTime() != b->GetRecordingStartTime())
         return a->GetRecordingStartTime() < b->GetRecordingStartTime();
-    if (a->GetRecordingEndTime() != b->GetRecordingEndTime())
-        return a->GetRecordingEndTime() < b->GetRecordingEndTime();
     int cmp = a->GetChannelSchedulingID().compare(b->GetChannelSchedulingID(),
                                                   Qt::CaseInsensitive);
     if (cmp != 0)
         return cmp < 0;
+    if (a->GetRecordingEndTime() != b->GetRecordingEndTime())
+        return a->GetRecordingEndTime() < b->GetRecordingEndTime();
     if (a->GetRecordingStatus() != b->GetRecordingStatus())
         return a->GetRecordingStatus() < b->GetRecordingStatus();
     if (a->GetChanNum() != b->GetChanNum())
@@ -1090,6 +1090,11 @@ bool Scheduler::FindNextConflict(
             continue;
         }
 
+        bool mplexid_ok =
+            p->GetInputID() != q->GetInputID() &&
+            ((p->mplexid && p->mplexid == q->mplexid) ||
+             (!p->mplexid && p->GetChanID() == q->GetChanID()));
+
         if (p->GetRecordingEndTime() == q->GetRecordingStartTime() ||
             p->GetRecordingStartTime() == q->GetRecordingEndTime())
         {
@@ -1097,19 +1102,12 @@ bool Scheduler::FindNextConflict(
                 (openEnd == openEndDiffChannel &&
                  p->GetChanID() == q->GetChanID()) ||
                 (openEnd == openEndAlways &&
-                 p->GetInputID() != q->GetInputID() &&
-                 ((p->mplexid && p->mplexid == q->mplexid) ||
-                  (!p->mplexid && p->GetChanID() == q->GetChanID()))))
+                 mplexid_ok))
             {
                 if (debugConflicts)
                     msg += "  no-overlap ";
-                if ((m_openEnd == openEndDiffChannel &&
-                     p->GetChanID() == q->GetChanID()) ||
-                    (m_openEnd == openEndAlways &&
-                     p->GetInputID() != q->GetInputID() &&
-                     ((p->mplexid && p->mplexid == q->mplexid) ||
-                      (!p->mplexid && p->GetChanID() == q->GetChanID()))))
-                      ++affinity;
+                if (mplexid_ok)
+                    ++affinity;
                 continue;
             }
         }
@@ -1128,9 +1126,7 @@ bool Scheduler::FindNextConflict(
 
         // if two inputs are in the same input group we have a conflict
         // unless the programs are on the same multiplex.
-        if (p->GetInputID() != q->GetInputID() &&
-            ((p->mplexid && p->mplexid == q->mplexid) ||
-             (!p->mplexid && p->GetChanID() == q->GetChanID())))
+        if (mplexid_ok)
         {
             ++affinity;
             continue;
@@ -4786,6 +4782,14 @@ int Scheduler::FillRecordingDir(
     const RecList &reclist)
 {
     LOG(VB_SCHEDULE, LOG_INFO, LOC + "FillRecordingDir: Starting");
+
+    uint cnt = 0;
+    while (!m_mainServer)
+    {
+        if (cnt++ % 20 == 0)
+            LOG(VB_SCHEDULE, LOG_WARNING, "Waiting for main server.");
+        usleep(50000);
+    }
 
     int fsID = -1;
     MSqlQuery query(MSqlQuery::InitCon());
