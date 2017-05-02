@@ -216,6 +216,7 @@ class AvFormatDecoder : public DecoderBase
     friend int close_avf(URLContext *h);
 
     void DecodeDTVCC(const uint8_t *buf, uint buf_size, bool scte);
+    void DecodeCCx08(const uint8_t *buf, uint buf_size, bool scte);
     void InitByteContext(bool forceseek = false);
     void InitVideoCodec(AVStream *stream, AVCodecContext *enc,
                         bool selectedStream = false);
@@ -263,6 +264,7 @@ class AvFormatDecoder : public DecoderBase
     virtual void DoFastForwardSeek(long long desiredFrame, bool &needflush);
     virtual void StreamChangeCheck(void) { }
     virtual void PostProcessTracks(void) { }
+    virtual bool IsValidStream(int streamid) {return true;}
 
     int DecodeAudio(AVCodecContext *ctx, uint8_t *buffer, int &data_size,
                     AVPacket *pkt);
