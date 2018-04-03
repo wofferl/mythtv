@@ -7,15 +7,9 @@ mingw | win32-msvc* {
    # script debugger currently only enabled for WIN32 builds
    QT += scripttools
 }
-contains(QT_VERSION, ^4\\.[0-9]\\..*) {
-QT += webkit
-using_qtdbus: CONFIG += qdbus
-}
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
 QT += widgets
 QT += webkitwidgets
 using_qtdbus: QT += dbus
-}
 
 TEMPLATE = app
 CONFIG += thread
@@ -158,17 +152,30 @@ android {
 using_openmax {
     contains( HAVE_OPENMAX_BROADCOM, yes ) {
         using_opengl {
-            # For raspberry Pi Raspbian
-            exists(/opt/vc/lib/libEGL.so) {
+            # For raspberry Pi Raspbian Stretch
+            exists(/opt/vc/lib/libbrcmEGL.so) {
                 DEFINES += USING_OPENGLES
                 # For raspberry pi raspbian
                 QMAKE_RPATHDIR += $${RUNPREFIX}/share/mythtv/lib
                 createlinks.path = $${PREFIX}/share/mythtv/lib
-                createlinks.extra = ln -fs /opt/vc/lib/libEGL.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libEGL.so.1.0.0 ;
-                createlinks.extra += ln -fs /opt/vc/lib/libEGL.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libEGL.so.1 ;
-                createlinks.extra += ln -fs /opt/vc/lib/libGLESv2.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libGLESv2.so.2.0.0 ;
-                createlinks.extra += ln -fs /opt/vc/lib/libGLESv2.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libGLESv2.so.2 ;
+                createlinks.extra = ln -fs /opt/vc/lib/libbrcmEGL.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libEGL.so.1.0.0 ;
+                createlinks.extra += ln -fs /opt/vc/lib/libbrcmEGL.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libEGL.so.1 ;
+                createlinks.extra += ln -fs /opt/vc/lib/libbrcmGLESv2.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libGLESv2.so.2.0.0 ;
+                createlinks.extra += ln -fs /opt/vc/lib/libbrcmGLESv2.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libGLESv2.so.2 ;
                 INSTALLS += createlinks
+            } else {
+                # For raspberry Pi Raspbian pre-stretch
+                exists(/opt/vc/lib/libEGL.so) {
+                    DEFINES += USING_OPENGLES
+                    # For raspberry pi raspbian
+                    QMAKE_RPATHDIR += $${RUNPREFIX}/share/mythtv/lib
+                    createlinks.path = $${PREFIX}/share/mythtv/lib
+                    createlinks.extra = ln -fs /opt/vc/lib/libEGL.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libEGL.so.1.0.0 ;
+                    createlinks.extra += ln -fs /opt/vc/lib/libEGL.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libEGL.so.1 ;
+                    createlinks.extra += ln -fs /opt/vc/lib/libGLESv2.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libGLESv2.so.2.0.0 ;
+                    createlinks.extra += ln -fs /opt/vc/lib/libGLESv2.so $(INSTALL_ROOT)/$${PREFIX}/share/mythtv/lib/libGLESv2.so.2 ;
+                    INSTALLS += createlinks
+                }
             }
         } else {
             # For raspberry pi ubuntu

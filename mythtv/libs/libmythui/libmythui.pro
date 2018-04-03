@@ -1,14 +1,9 @@
 include ( ../../settings.pro )
 
 QT += xml sql network opengl
-contains(QT_VERSION, ^4\\.[0-9]\\..*) {
-QT += webkit
-}
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
 QT += widgets
 QT += webkitwidgets
 android: QT += androidextras
-}
 
 TEMPLATE = lib
 TARGET = mythui-$$LIBVERSION
@@ -193,6 +188,18 @@ using_opengl {
 
     mingw|win32-msvc*:LIBS += -lopengl32
 }
+
+using_openmax {
+    contains( HAVE_OPENMAX_BROADCOM, yes ) {
+        using_opengl {
+            # For raspberry Pi Raspbian
+            exists(/opt/vc/lib/libbrcmEGL.so) {
+                LIBS += -L/opt/vc/lib/ -lbrcmGLESv2 -lbrcmEGL
+            }
+        }
+    }
+}
+
 
 DEFINES += USING_QTWEBKIT
 DEFINES += MUI_API

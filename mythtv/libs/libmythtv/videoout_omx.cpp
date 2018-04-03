@@ -1,6 +1,5 @@
-#ifdef USING_OPENGLES
-#define OSD_EGL // OSD with EGL
-#endif
+
+#include "videoout_omx.h"
 
 #ifdef OSD_EGL /* includes QJson with enum value named Bool, must go before EGL/egl.h */
 # include "mythpainter_ogl.h"
@@ -9,8 +8,6 @@
 
 /* must go before X11/X.h due to #define None 0L */
 #include "privatedecoder_omx.h" // For PrivateDecoderOMX::s_name
-
-#include "videoout_omx.h"
 
 #include <cstddef>
 #include <cassert>
@@ -29,9 +26,6 @@
 #ifdef OSD_EGL
 #include <EGL/egl.h>
 #include <QtGlobal>
-#if QT_VERSION >= QT_VERSION_CHECK(5, 4, 0)
-#include <QtPlatformHeaders/QEGLNativeContext>
-#endif
 #endif
 
 // MythTV
@@ -884,10 +878,14 @@ void VideoOutputOMX::Show(FrameScanType scan)
 
     hdr->nFilledLen = frame->offsets[2] + (frame->offsets[1] >> 2);
     hdr->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
+#ifdef OMX_BUFFERFLAG_INTERLACED
     if (frame->interlaced_frame)
         hdr->nFlags |= OMX_BUFFERFLAG_INTERLACED;
+#endif
+#ifdef OMX_BUFFERFLAG_TOP_FIELD_FIRST
     if (frame->top_field_first)
         hdr->nFlags |= OMX_BUFFERFLAG_TOP_FIELD_FIRST;
+#endif
     OMXComponent &cmpnt = m_imagefx.IsValid() ? m_imagefx : m_render;
     // Paused - do not display anything unless softblend set
     if (m_videoPaused && GetOSDRenderer() != "softblend")

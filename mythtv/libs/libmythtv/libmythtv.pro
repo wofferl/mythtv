@@ -1,9 +1,6 @@
 include ( ../../settings.pro )
 
-QT += network xml sql
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += widgets
-}
+QT += network xml sql widgets
 
 TEMPLATE = lib
 TARGET = mythtv-$$LIBVERSION
@@ -907,6 +904,17 @@ using_hdhomerun: LIBS += -L../../external/libhdhomerun -lmythhdhomerun-$$LIBVERS
 using_backend: LIBS += -lmp3lame
 using_backend: LIBS += -L../../external/minilzo -lmythminilzo-$$LIBVERSION
 LIBS += $$EXTRA_LIBS $$QMAKE_LIBS_DYNLOAD
+
+using_openmax {
+    contains( HAVE_OPENMAX_BROADCOM, yes ) {
+        using_opengl {
+            # For raspberry Pi Raspbian
+            exists(/opt/vc/lib/libbrcmEGL.so) {
+                LIBS += -L/opt/vc/lib/ -lbrcmGLESv2 -lbrcmEGL
+            }
+        }
+    }
+}
 
 !win32-msvc* {
     POST_TARGETDEPS += ../libmyth/libmyth-$${MYTH_SHLIB_EXT}
