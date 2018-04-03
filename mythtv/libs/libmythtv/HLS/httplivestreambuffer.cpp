@@ -1776,11 +1776,7 @@ bool HLSRingBuffer::TestForHTTPLiveStreaming(const QString &filename)
         QUrl url = filename;
         isHLS =
         url.path().endsWith(QLatin1String("m3u8"), Qt::CaseInsensitive) ||
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-        QString(url.encodedQuery()).contains(QLatin1String("m3u8"), Qt::CaseInsensitive);
-#else
         QString(url.query( QUrl::FullyEncoded )).contains(QLatin1String("m3u8"), Qt::CaseInsensitive);
-#endif
     }
     return isHLS;
 }
@@ -1809,8 +1805,8 @@ QString HLSRingBuffer::ParseAttributes(const QString &line, const char *attr) co
 }
 
 /**
- * Return the decimal argument in a line of type: blah:<decimal>
- * presence of valud <decimal> is compulsory or it will return RET_ERROR
+ * Return the decimal argument in a line of type: blah:\<decimal\>
+ * presence of value \<decimal\> is compulsory or it will return RET_ERROR
  */
 int HLSRingBuffer::ParseDecimalValue(const QString &line, int &target) const
 {
@@ -2058,7 +2054,7 @@ int HLSRingBuffer::ParseKey(HLSStream *hls, const QString &line)
     return err;
 }
 
-int HLSRingBuffer::ParseProgramDateTime(HLSStream *hls, const QString &line) const
+int HLSRingBuffer::ParseProgramDateTime(HLSStream */*hls*/, const QString &line) const
 {
     /*
      * #EXT-X-PROGRAM-DATE-TIME:<YYYY-MM-DDThh:mm:ssZ>
@@ -2136,7 +2132,7 @@ int HLSRingBuffer::ParseEndList(HLSStream *hls) const
     return RET_OK;
 }
 
-int HLSRingBuffer::ParseDiscontinuity(HLSStream *hls, const QString &line) const
+int HLSRingBuffer::ParseDiscontinuity(HLSStream */*hls*/, const QString &line) const
 {
     /* Not handled, never seen so far */
     LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString("#EXT-X-DISCONTINUITY %1").arg(line));
@@ -2356,7 +2352,7 @@ int HLSRingBuffer::Prefetch(int count)
     return RET_OK;
 }
 
-void HLSRingBuffer::SanityCheck(const HLSStream *hls, const HLSSegment *segment) const
+void HLSRingBuffer::SanityCheck(const HLSStream *hls) const
 {
     bool live = hls->Live();
     /* sanity check */
@@ -2414,7 +2410,7 @@ HLSSegment *HLSRingBuffer::GetSegment(int segnum, int timeout)
     LOG(VB_PLAYBACK, LOG_DEBUG, LOC +
         QString("GetSegment %1 [%2] stream[%3] (bitrate:%4)")
         .arg(segnum).arg(segment->Id()).arg(stream).arg(hls->Bitrate()));
-    SanityCheck(hls, segment);
+    SanityCheck(hls);
     return segment;
 }
 
@@ -2537,7 +2533,15 @@ void HLSRingBuffer::SanitizeStreams(StreamsList *streams)
     }
 }
 
-bool HLSRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
+/** \fn HLSRingBuffer::OpenFile(const QString &, uint)
+ *  \brief Opens an HTTP Live Stream for reading.
+ *
+ *  \param lfilename   Url of the HTTP live stream to read.
+ *  \param retry_ms    Ignored. This value is part of the API
+ *                     inherited from the parent class.
+ *  \return Returns true if the live stream was opened.
+ */
+bool HLSRingBuffer::OpenFile(const QString &lfilename, uint /*retry_ms*/)
 {
     QWriteLocker lock(&rwlock);
 
@@ -2575,7 +2579,7 @@ bool HLSRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
 
     /* HLS standard doesn't provide any guaranty about streams
      being sorted by bitrate, so we sort them, higher bitrate being first */
-    qSort(m_streams.begin(), m_streams.end(), HLSStream::IsGreater);
+    std::sort(m_streams.begin(), m_streams.end(), HLSStream::IsGreater);
 
     // if we want as close to live. We should be selecting a further segment
     // m_live ? ChooseSegment(0) : 0;

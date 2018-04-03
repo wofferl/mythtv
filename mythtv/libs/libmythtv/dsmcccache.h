@@ -43,6 +43,15 @@ class DSMCCCacheReference
         m_nCarouselId(r.m_nCarouselId), m_nModuleId(r.m_nModuleId),
         m_nStreamTag(r.m_nStreamTag),   m_Key(r.m_Key) {}
 
+    DSMCCCacheReference& operator=(const DSMCCCacheReference &rhs)
+    {
+        m_nCarouselId = rhs.m_nCarouselId;
+        m_nModuleId = rhs.m_nModuleId;
+        m_nStreamTag = rhs.m_nStreamTag;
+        m_Key = rhs.m_Key;
+        return *this;
+    }
+
     bool Equal(const DSMCCCacheReference &r) const;
     bool Equal(const DSMCCCacheReference *p) const;
 
@@ -64,7 +73,7 @@ class DSMCCCacheDir
 {
   public:
     DSMCCCacheDir() {}
-    DSMCCCacheDir(const DSMCCCacheReference &r) : m_Reference(r) {}
+    explicit DSMCCCacheDir(const DSMCCCacheReference &r) : m_Reference(r) {}
 
     // These maps give the cache reference for each name
     QMap<QString, DSMCCCacheReference> m_SubDirectories;
@@ -78,7 +87,7 @@ class DSMCCCacheFile
 {
   public:
     DSMCCCacheFile() {}
-    DSMCCCacheFile(const DSMCCCacheReference &r) : m_Reference(r) {}
+    explicit DSMCCCacheFile(const DSMCCCacheReference &r) : m_Reference(r) {}
 
     DSMCCCacheReference m_Reference;
     QByteArray m_Contents; // Contents of the file.
@@ -87,7 +96,7 @@ class DSMCCCacheFile
 class DSMCCCache
 {
   public:
-    DSMCCCache(Dsmcc *);
+    explicit DSMCCCache(Dsmcc *);
     ~DSMCCCache();
 
     // Create a new gateway.

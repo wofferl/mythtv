@@ -22,6 +22,8 @@
 #include "mythdb.h"
 #include "mythlogging.h"
 #include "inputinfo.h"
+#include "mythmiscutil.h" // for ping()
+#include "mythdownloadmanager.h"
 
 #ifdef USING_DVB
 #include "dvbtypes.h"
@@ -41,6 +43,7 @@
 
 #ifdef USING_VBOX
 #include "vboxutils.h"
+#include "mythmiscutil.h"
 #endif
 
 #ifdef USING_ASI
@@ -144,9 +147,74 @@ bool CardUtil::IsCableCardPresent(uint inputid,
     else if (inputType == "CETON")
     {
 #ifdef USING_CETON
-        // TODO FIXME implement detection of Cablecard presence
-        LOG(VB_GENERAL, LOG_INFO, "Cardutil: TODO Ceton Is Cablecard Present?");
-        return true;
+        QString device = GetVideoDevice(inputid);
+
+        QStringList parts = device.split("-");
+        if (parts.size() != 2)
+        {
+            LOG(VB_GENERAL, LOG_ERR,
+                QString("CardUtil: Ceton invalid device id %1").arg(device));
+            return false;
+        }
+
+        QString ip_address = parts.at(0);
+
+        QStringList tuner_parts = parts.at(1).split(".");
+        if (tuner_parts.size() != 2)
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("CardUtil: Ceton invalid device id %1").arg(device));
+            return false;
+        }
+
+        uint tuner = tuner_parts.at(1).toUInt();
+
+        QUrlQuery params;
+        params.addQueryItem("i", QString::number(tuner));
+        params.addQueryItem("s", "cas");
+        params.addQueryItem("v", "CardStatus");
+
+        QUrl url;
+        url.setScheme("http");
+        url.setHost(ip_address);
+        url.setPath("/get_var.json");
+        url.setQuery(params);
+
+        QNetworkRequest *request = new QNetworkRequest();
+        request->setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                              QNetworkRequest::AlwaysNetwork);
+        request->setUrl(url);
+
+        QByteArray data;
+        MythDownloadManager *manager = GetMythDownloadManager();
+
+        if (!manager->download(request, &data))
+        {
+            LOG(VB_GENERAL, LOG_ERR,
+                QString("CardUtil: Ceton http request failed %1").arg(device));
+            return false;
+        }
+
+        QString response = QString(data);
+
+        QRegExp regex("^\\{ \"?result\"?: \"(.*)\" \\}$");
+        if (regex.indexIn(response) == -1)
+        {
+            LOG(VB_GENERAL, LOG_ERR,
+                QString("CardUtil: Ceton unexpected http response: %1").arg(response));
+            return false;
+        }
+
+        QString result = regex.cap(1);
+
+        if (result == "Inserted")
+        {
+            LOG(VB_GENERAL, LOG_DEBUG, "Cardutil: Ceton CableCARD present.");
+            return true;
+        }
+
+        LOG(VB_GENERAL, LOG_DEBUG, "Cardutil: Ceton CableCARD not present.");
+        return false;
 #else
         return false;
 #endif
@@ -158,7 +226,7 @@ bool CardUtil::IsCableCardPresent(uint inputid,
 bool CardUtil::HasTuner(const QString &rawtype, const QString & device)
 {
     if (rawtype == "DVB"     || rawtype == "HDHOMERUN" ||
-        rawtype == "FREEBOX" || rawtype == "CETON")
+        rawtype == "FREEBOX" || rawtype == "CETON" || rawtype == "VBOX")
         return true;
 
 #ifdef USING_V4L2
@@ -297,6 +365,36 @@ CardUtil::InputTypes CardUtil::GetInputTypes(void)
     return inputtypes;
 }
 
+/**
+ * Get a list of card input types for a source id.
+ *
+ * \param sourceid [in] source id.
+ * \return QStringList of card types for that source
+*/
+
+QStringList CardUtil::GetInputTypeNames(uint sourceid)
+{
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare("SELECT cardtype "
+                  "FROM capturecard "
+                  "WHERE capturecard.sourceid = :SOURCEID "
+                  "GROUP BY cardtype");
+    query.bindValue(":SOURCEID", sourceid);
+
+    QStringList list;
+    if (!query.exec())
+    {
+        MythDB::DBError("CardUtil::GetInputTypes", query);
+        return list;
+    }
+    while (query.next())
+        list.push_back(query.value(0).toString());
+    return list;
+}
+
+
+
+
 /** \fn CardUtil::GetVideoDevices(const QString&, QString)
  *  \brief Returns the videodevices of the matching inputs, duplicates removed
  *  \param rawtype  Input type as used in DB or empty string for all inputids
@@ -345,16 +443,25 @@ QStringList CardUtil::GetVideoDevices(const QString &rawtype, QString hostname)
     return list;
 }
 
+QMap <QString,QStringList> CardUtil::videoDeviceCache;
+
+void CardUtil::ClearVideoDeviceCache()
+{
+    videoDeviceCache.clear();
+}
+
+
 QStringList CardUtil::ProbeVideoDevices(const QString &rawtype)
 {
+    if (videoDeviceCache.contains(rawtype))
+        return videoDeviceCache[rawtype];
+
     QStringList devs;
 
     if (rawtype.toUpper() == "DVB")
     {
         QDir dir("/dev/dvb", "adapter*", QDir::Name, QDir::Dirs);
         const QFileInfoList il = dir.entryInfoList();
-        if (il.isEmpty())
-            return devs;
 
         QFileInfoList::const_iterator it = il.begin();
 
@@ -374,8 +481,6 @@ QStringList CardUtil::ProbeVideoDevices(const QString &rawtype)
     {
         QDir dir("/dev/", "asirx*", QDir::Name, QDir::System);
         const QFileInfoList il = dir.entryInfoList();
-        if (il.isEmpty())
-            return devs;
 
         QFileInfoList::const_iterator it = il.begin();
         for (; it != il.end(); ++it)
@@ -403,7 +508,6 @@ QStringList CardUtil::ProbeVideoDevices(const QString &rawtype)
         if (result == -1)
         {
             LOG(VB_GENERAL, LOG_ERR, "Error finding HDHomerun devices");
-            return devs;
         }
 
         if (result >= max_count)
@@ -451,6 +555,7 @@ QStringList CardUtil::ProbeVideoDevices(const QString &rawtype)
                                      .arg(rawtype));
     }
 
+    videoDeviceCache.insert(rawtype,devs);
     return devs;
 }
 
@@ -468,7 +573,7 @@ QString CardUtil::ProbeDVBType(const QString &device)
     int fd_frontend = open(dev.constData(), O_RDWR | O_NONBLOCK);
     if (fd_frontend < 0)
     {
-        LOG(VB_GENERAL, LOG_ERR, QString("Can't open DVB frontend (%1) for %2.")
+        LOG(VB_GENERAL, LOG_ERR, QString("Can't open DVB frontend (%1) for %2." + ENO)
                 .arg(dvbdev).arg(device));
         return ret;
     }
@@ -483,7 +588,6 @@ QString CardUtil::ProbeDVBType(const QString &device)
                                          .arg(dvbdev) + ENO);
         return ret;
     }
-    close(fd_frontend);
 
     DTVTunerType type(info.type);
 #if HAVE_FE_CAN_2G_MODULATION
@@ -495,6 +599,39 @@ QString CardUtil::ProbeDVBType(const QString &device)
             type = DTVTunerType::kTunerTypeDVBT2;
     }
 #endif // HAVE_FE_CAN_2G_MODULATION
+
+#if DVB_API_VERSION >=5
+    unsigned int i;
+    struct dtv_property prop;
+    struct dtv_properties cmd;
+
+    memset(&prop, 0, sizeof(prop));
+    prop.cmd = DTV_ENUM_DELSYS;
+    cmd.num = 1;
+    cmd.props = &prop;
+
+    if (ioctl(fd_frontend, FE_GET_PROPERTY, &cmd) == 0)
+    {
+        for (i = 0; i < prop.u.buffer.len; i++)
+        {
+            switch (prop.u.buffer.data[i])
+            {
+                // TODO: not supported. you can have DVBC and DVBT on the same card
+                // The following are backwards compatible so its ok
+                case SYS_DVBS2:
+                    type = DTVTunerType::kTunerTypeDVBS2;
+                    break;
+                case SYS_DVBT2:
+                    type = DTVTunerType::kTunerTypeDVBT2;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+#endif
+    close(fd_frontend);
+
     ret = (type.toString() != "UNKNOWN") ? type.toString().toUpper() : ret;
 #endif // USING_DVB
 
@@ -603,7 +740,7 @@ QString get_on_input(const QString &to_get, uint inputid)
     else if (query.next())
         return query.value(0).toString();
 
-    return QString::null;
+    return QString();
 }
 
 bool set_on_input(const QString &to_set, uint inputid, const QString &value)
@@ -632,6 +769,7 @@ bool set_on_input(const QString &to_set, uint inputid, const QString &value)
  *         hostname. The result is ordered from smallest to largest.
  *  \param videodevice Video device we want input ids for
  *  \param rawtype     Input type as used in DB or empty string for any type
+ *  \param inputname   The name of the input card.
  *  \param hostname    Host on which device resides, only
  *                     required if said host is not the localhost
  */
@@ -779,15 +917,17 @@ static uint clone_capturecard(uint src_inputid, uint orig_dst_inputid)
     }
 
     query.prepare(
-        "SELECT videodevice,           audiodevice,           vbidevice,       "
-        "       cardtype,              hostname,              signal_timeout,  "
-        "       channel_timeout,       dvb_wait_for_seqstart, dvb_on_demand,   "
-        "       dvb_tuning_delay,      dvb_diseqc_type,       diseqcid,        "
-        "       dvb_eitscan,           inputname,             sourceid,        "
-        "       externalcommand,       changer_device,        changer_model,   "
-        "       tunechan,              startchan,             displayname,     "
-        "       dishnet_eit,           recpriority,           quicktune,       "
-        "       schedorder,            livetvorder "
+        "SELECT videodevice,           audiodevice,           vbidevice,      "
+        "       cardtype,              hostname,              signal_timeout, "
+        "       channel_timeout,       dvb_wait_for_seqstart, dvb_on_demand,  "
+        "       dvb_tuning_delay,      dvb_diseqc_type,       diseqcid,       "
+        "       dvb_eitscan,           inputname,             sourceid,       "
+        "       externalcommand,       changer_device,        changer_model,  "
+        "       tunechan,              startchan,             displayname,    "
+        "       dishnet_eit,           recpriority,           quicktune,      "
+        "       livetvorder,           reclimit,                              "
+        // See below for special handling of the following.
+        "       schedgroup,            schedorder                             "
         "FROM capturecard "
         "WHERE cardid = :INPUTID");
     query.bindValue(":INPUTID", src_inputid);
@@ -801,6 +941,17 @@ static uint clone_capturecard(uint src_inputid, uint orig_dst_inputid)
     {
         LOG(VB_GENERAL, LOG_ERR, "clone_cardinput -- get data 2");
         return 0;
+    }
+
+    // Hangel schedgroup and schedorder specially.  If schedgroup is
+    // set, schedgroup and schedorder should be false and 0,
+    // respectively, for all children.
+    bool schedgroup = query.value(26).toBool();
+    uint schedorder = query.value(27).toUInt();
+    if (schedgroup)
+    {
+        schedgroup = false;
+        schedorder = 0;
     }
 
     MSqlQuery query2(MSqlQuery::InitCon());
@@ -830,20 +981,24 @@ static uint clone_capturecard(uint src_inputid, uint orig_dst_inputid)
         "    dishnet_eit           = :V21, "
         "    recpriority           = :V22, "
         "    quicktune             = :V23, "
-        "    schedorder            = :V24, "
-        "    livetvorder           = :V25,  "
+        "    livetvorder           = :V24, "
+        "    reclimit              = :V25, "
+        "    schedgroup            = :SCHEDGROUP, "
+        "    schedorder            = :SCHEDORDER, "
         "    parentid              = :PARENTID "
         "WHERE cardid = :INPUTID");
     for (uint i = 0; i < 26; ++i)
         query2.bindValue(QString(":V%1").arg(i), query.value(i).toString());
     query2.bindValue(":INPUTID", dst_inputid);
     query2.bindValue(":PARENTID", src_inputid);
+    query2.bindValue(":SCHEDGROUP", schedgroup);
+    query2.bindValue(":SCHEDORDER", schedorder);
 
     if (!query2.exec())
     {
         MythDB::DBError("clone_capturecard -- save data", query2);
         if (!orig_dst_inputid)
-            CardUtil::DeleteCard(dst_inputid);
+            CardUtil::DeleteInput(dst_inputid);
         return 0;
     }
 
@@ -863,17 +1018,42 @@ static uint clone_capturecard(uint src_inputid, uint orig_dst_inputid)
     return dst_inputid;
 }
 
-bool CardUtil::CloneCard(uint src_inputid, uint orig_dst_inputid)
+uint CardUtil::CloneCard(uint src_inputid, uint orig_dst_inputid)
 {
     QString type = CardUtil::GetRawInputType(src_inputid);
     if (!IsTunerSharingCapable(type))
-        return false;
+        return 0;
 
     uint dst_inputid = clone_capturecard(src_inputid, orig_dst_inputid);
-    if (!dst_inputid)
-        return false;
+    return dst_inputid;
+}
 
-    return true;
+uint CardUtil::AddChildInput(uint parentid)
+{
+    uint inputid = CloneCard(parentid, 0);
+
+    // Update the reclimit for the parent and all children so the new
+    // child doesn't get removed the next time mythtv-setup is run.
+    if (inputid)
+    {
+        LOG(VB_GENERAL, LOG_INFO, LOC +
+            QString("Added child input %1 to parent %2")
+            .arg(inputid).arg(parentid));
+        MSqlQuery query(MSqlQuery::InitCon());
+        query.prepare("UPDATE capturecard "
+                      "SET reclimit = reclimit + 1 "
+                      "WHERE cardid = :PARENTID");
+        query.bindValue(":PARENTID", parentid);
+        if (!query.exec())
+            MythDB::DBError("CardUtil::AddChildInput", query);
+    }
+    else
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("Failed to add child input to parent %1").arg(parentid));
+    }
+
+    return inputid;
 }
 
 QString CardUtil::GetFirewireChangerNode(uint inputid)
@@ -1046,13 +1226,13 @@ QString CardUtil::GetStartingChannel(uint inputid)
     else if (query.next())
         return query.value(0).toString();
 
-    return QString::null;
+    return QString();
 }
 
 QString CardUtil::GetDisplayName(uint inputid)
 {
     if (!inputid)
-        return QString::null;
+        return QString();
 
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare("SELECT displayname, cardid, cardtype, inputname "
@@ -1071,7 +1251,7 @@ QString CardUtil::GetDisplayName(uint inputid)
         return result;
     }
 
-    return QString::null;
+    return QString();
 }
 
 uint CardUtil::GetSourceID(uint inputid)
@@ -1090,13 +1270,16 @@ uint CardUtil::GetSourceID(uint inputid)
     return 0;
 }
 
+// Is this intentionally leaving out the hostname when updating the
+// capturecard table? The hostname value does get set when inserting
+// into the capturecard table. (Code written in 2011.)
 int CardUtil::CreateCardInput(const uint inputid,
                               const uint sourceid,
                               const QString &inputname,
                               const QString &externalcommand,
                               const QString &changer_device,
                               const QString &changer_model,
-                              const QString &hostname,
+                              const QString &/*hostname*/,
                               const QString &tunechan,
                               const QString &startchan,
                               const QString &displayname,
@@ -1148,47 +1331,6 @@ int CardUtil::CreateCardInput(const uint inputid,
     }
 
     return inputid;
-}
-
-bool CardUtil::DeleteInput(uint inputid)
-{
-    MSqlQuery query(MSqlQuery::InitCon());
-    query.prepare(
-        "UPDATE capturecard "
-        "SET sourceid = 0, "
-        "    inputname = 'None', "
-        "    externalcommand = '', "
-        "    changer_device = '', "
-        "    changer_model = '', "
-        "    tunechan = '', "
-        "    startchan = '', "
-        "    displayname = '', "
-        "    dishnet_eit = 0, "
-        "    recpriority = 0, "
-        "    quicktune = 0, "
-        "    schedorder = 1, "
-        "    livetvorder = 1 "
-        "WHERE cardid = :INPUTID");
-    query.bindValue(":INPUTID", inputid);
-
-    if (!query.exec())
-    {
-        MythDB::DBError("DeleteInput", query);
-        return false;
-    }
-
-    query.prepare("DELETE FROM inputgroup "
-                  "WHERE cardinputid = :INPUTID AND "
-                  "      inputgroupname LIKE 'user:%'");
-    query.bindValue(":INPUTID", inputid);
-
-    if (!query.exec())
-    {
-        MythDB::DBError("DeleteInput2", query);
-        return false;
-    }
-
-    return true;
 }
 
 uint CardUtil::CreateInputGroup(const QString &name)
@@ -1395,29 +1537,40 @@ vector<uint> CardUtil::GetGroupInputIDs(uint inputgroupid)
 
 vector<uint> CardUtil::GetConflictingInputs(uint inputid)
 {
+    LOG(VB_RECORD, LOG_INFO,
+        LOC + QString("GetConflictingInputs() input %1").arg(inputid));
+
     vector<uint> inputids;
-    vector<uint> inputgroupids = CardUtil::GetInputGroups(inputid);
 
-    for (uint i = 0; i < inputgroupids.size(); i++)
+    MSqlQuery query(MSqlQuery::InitCon());
+
+    query.prepare(
+        "SELECT DISTINCT c.cardid "
+        "FROM ( "
+        "    SELECT inputgroupid "
+        "    FROM inputgroup "
+        "    WHERE cardinputid = :INPUTID1 "
+        ") g "
+        "JOIN inputgroup ig ON ig.inputgroupid = g.inputgroupid "
+        "JOIN capturecard c ON c.cardid = ig.cardinputid "
+        "                      AND c.cardid <> :INPUTID2 "
+        "ORDER BY c.cardid");
+
+    query.bindValue(":INPUTID1", inputid);
+    query.bindValue(":INPUTID2", inputid);
+
+    if (!query.exec())
     {
-        LOG(VB_RECORD, LOG_INFO, LOC + QString("  Group ID %1")
-                                     .arg(inputgroupids[i]));
-
-        vector<uint> tmp = CardUtil::GetGroupInputIDs(inputgroupids[i]);
-        for (uint j = 0; j < tmp.size(); j++)
-        {
-            if (tmp[j] == inputid)
-                continue;
-            if (find(inputids.begin(), inputids.end(), tmp[j])
-                != inputids.end())
-                continue;
-            inputids.push_back(tmp[j]);
-        }
+        MythDB::DBError("CardUtil::GetConflictingInputs()", query);
+        return inputids;
     }
 
-    for (uint i = 0; i < inputids.size(); i++)
+    while (query.next())
+    {
+        inputids.push_back(query.value(0).toUInt());
         LOG(VB_RECORD, LOG_INFO,
-            LOC + QString("  Input ID %1").arg(inputids[i]));
+            LOC + QString("GetConflictingInputs() got input %1").arg(inputids.back()));
+    }
 
     return inputids;
 }
@@ -1495,7 +1648,8 @@ bool CardUtil::GetV4LInfo(
     int videofd, QString &input, QString &driver, uint32_t &version,
     uint32_t &capabilities)
 {
-    input = driver = QString::null;
+    input.clear();
+    driver.clear();
     version = 0;
     capabilities = 0;
 
@@ -1788,7 +1942,6 @@ QString CardUtil::GetDeviceLabel(uint inputid)
 }
 
 void CardUtil::GetDeviceInputNames(
-    uint                inputid,
     const QString      &device,
     const QString      &inputtype,
     QStringList        &inputs)
@@ -1896,89 +2049,84 @@ int CardUtil::CreateCaptureCard(const QString &videodevice,
     return inputid;
 }
 
-bool CardUtil::DeleteCard(uint inputid)
+bool CardUtil::DeleteInput(uint inputid)
 {
-    MSqlQuery query(MSqlQuery::InitCon());
-    bool ok = true;
+    vector<uint> childids = GetChildInputIDs(inputid);
+    for (uint i = 0; i < childids.size(); ++i)
+    {
+        if (!DeleteInput(childids[i]))
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("CardUtil: Failed to delete child input %1")
+                .arg(childids[i]));
+            return false;
+        }
+    }
 
-    if (!inputid)
-        return true;
+    MSqlQuery query(MSqlQuery::InitCon());
 
     DiSEqCDevTree tree;
     tree.Load(inputid);
 
-    // delete any clones
-    QString rawtype     = GetRawInputType(inputid);
-    QString videodevice = GetVideoDevice(inputid);
-    if (IsTunerSharingCapable(rawtype) && !videodevice.isEmpty())
-    {
-        query.prepare(
-            "SELECT cardid "
-            "FROM capturecard "
-            "WHERE parentid = :INPUTID");
-        query.bindValue(":INPUTID", inputid);
-
-        if (!query.exec())
-        {
-            MythDB::DBError("DeleteCard -- find clone inputs", query);
-            return false;
-        }
-
-        while (query.next())
-            ok &= DeleteCard(query.value(0).toUInt());
-
-        if (!ok)
-            return false;
-    }
-
-    ok &= CardUtil::DeleteInput(inputid);
-
-    if (!ok)
-        return false;
-
-    // actually delete the capturecard row for this input
+    // Delete the capturecard row for this input
     query.prepare("DELETE FROM capturecard WHERE cardid = :INPUTID");
     query.bindValue(":INPUTID", inputid);
-
     if (!query.exec())
     {
-        MythDB::DBError("DeleteCard -- delete row", query);
-        ok = false;
+        MythDB::DBError("DeleteCard -- delete capturecard", query);
+        return false;
     }
 
-    if (ok)
+    // Update the reclimit of the parent input
+    query.prepare("UPDATE capturecard SET reclimit=reclimit-1 "
+                  "WHERE cardid = :INPUTID");
+    query.bindValue(":INPUTID", inputid);
+    if (!query.exec())
     {
-        // Delete the diseqc tree if no more inputs reference it.
-        if (tree.Root())
-        {
-            query.prepare("SELECT cardid FROM capturecard "
-                          "WHERE diseqcid = :DISEQCID LIMIT 1");
-            query.bindValue(":DISEQCID", tree.Root()->GetDeviceID());
-            if (!query.exec())
-            {
-                MythDB::DBError("DeleteCard -- find diseqc tree", query);
-            }
-            else if (!query.next())
-            {
-                tree.SetRoot(NULL);
-                tree.Store(inputid);
-            }
-        }
-
-        // delete any unused input groups
-        UnlinkInputGroup(0,0);
+        MythDB::DBError("DeleteCard -- update capturecard", query);
+        return false;
     }
 
-    return ok;
+    // Delete the inputgroup rows for this input
+    query.prepare("DELETE FROM inputgroup WHERE cardinputid = :INPUTID");
+    query.bindValue(":INPUTID", inputid);
+    if (!query.exec())
+    {
+        MythDB::DBError("DeleteCard -- delete inputgroup", query);
+        return false;
+    }
+
+    // Delete the diseqc tree if no more inputs reference it.
+    if (tree.Root())
+    {
+        query.prepare("SELECT cardid FROM capturecard "
+                      "WHERE diseqcid = :DISEQCID LIMIT 1");
+        query.bindValue(":DISEQCID", tree.Root()->GetDeviceID());
+        if (!query.exec())
+        {
+            MythDB::DBError("DeleteCard -- find diseqc tree", query);
+        }
+        else if (!query.next())
+        {
+            tree.SetRoot(NULL);
+            tree.Store(inputid);
+        }
+    }
+
+    // delete any unused input groups
+    UnlinkInputGroup(0, 0);
+
+    return true;
 }
 
-bool CardUtil::DeleteAllCards(void)
+bool CardUtil::DeleteAllInputs(void)
 {
     MSqlQuery query(MSqlQuery::InitCon());
     return (query.exec("TRUNCATE TABLE inputgroup") &&
             query.exec("TRUNCATE TABLE diseqc_config") &&
             query.exec("TRUNCATE TABLE diseqc_tree") &&
-            query.exec("TRUNCATE TABLE capturecard"));
+            query.exec("TRUNCATE TABLE capturecard") &&
+            query.exec("TRUNCATE TABLE iptv_channel"));
 }
 
 vector<uint> CardUtil::GetInputList(void)
@@ -2002,7 +2150,7 @@ vector<uint> CardUtil::GetInputList(void)
     return list;
 }
 
-vector<uint> CardUtil::GetLiveTVInputList(void)
+vector<uint> CardUtil::GetSchedInputList(void)
 {
     vector<uint> list;
 
@@ -2010,11 +2158,11 @@ vector<uint> CardUtil::GetLiveTVInputList(void)
     query.prepare(
         "SELECT DISTINCT cardid "
         "FROM capturecard "
-        "WHERE livetvorder <> 0 "
-        "ORDER BY livetvorder");
+        "WHERE schedorder <> 0 "
+        "ORDER BY schedorder, cardid");
 
     if (!query.exec())
-        MythDB::DBError("CardUtil::GetInputList()", query);
+        MythDB::DBError("CardUtil::GetSchedInputList()", query);
     else
     {
         while (query.next())
@@ -2024,6 +2172,27 @@ vector<uint> CardUtil::GetLiveTVInputList(void)
     return list;
 }
 
+vector<uint> CardUtil::GetLiveTVInputList(void)
+{
+    vector<uint> list;
+
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare(
+        "SELECT DISTINCT cardid "
+        "FROM capturecard "
+        "WHERE livetvorder <> 0 "
+        "ORDER BY livetvorder, cardid");
+
+    if (!query.exec())
+        MythDB::DBError("CardUtil::GetLiveTVInputList()", query);
+    else
+    {
+        while (query.next())
+            list.push_back(query.value(0).toUInt());
+    }
+
+    return list;
+}
 
 QString CardUtil::GetDeviceName(dvb_dev_type_t type, const QString &device)
 {
@@ -2358,9 +2527,76 @@ bool CardUtil::SetASIMode(uint device_num, uint mode, QString *error)
     }
     return ok;
 #else
-    (void) device_num;
+    Q_UNUSED(device_num);
+    Q_UNUSED(mode);
     if (error)
         *error = "Not compiled with ASI support.";
     return false;
 #endif
+}
+
+/** \fn CardUtil::IsVBoxPresent(uint inputid)
+ *  \brief Returns true if the VBox responds to a ping
+ *  \param inputid  Inputid  as used in DB capturecard table
+ */
+bool CardUtil::IsVBoxPresent(uint inputid)
+{
+    // should only be called if inputtype == VBOX
+    if (!inputid )
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("VBOX inputid  (%1) not valid, redo mythtv-setup")
+                .arg(inputid));
+        return false;
+    }
+
+    // get sourceid and startchan from table capturecard for inputid
+    uint chanid = 0;
+    chanid = ChannelUtil::GetChannelValueInt("chanid",GetSourceID(inputid),GetStartingChannel(inputid));
+    if (!chanid)
+    {
+        // no chanid, presume bad setup
+        LOG(VB_GENERAL, LOG_ERR, QString("VBOX chanid  (%1) not found for inputid (%2) , redo mythtv-setup")
+                .arg(chanid).arg(inputid));
+        return false;
+    }
+
+    // get timeouts for inputid
+    uint signal_timeout = 0;
+    uint tuning_timeout = 0;
+    if (!GetTimeouts(inputid,signal_timeout,tuning_timeout))
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Failed to get timeouts for inputid (%1)")
+                .arg(inputid));
+        return false;
+    }
+
+    signal_timeout = signal_timeout/1000; //convert to seconds
+
+    // now get url from iptv_channel table
+    QUrl url;
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare("SELECT url "
+                  "FROM iptv_channel "
+                  "WHERE chanid = :CHANID");
+    query.bindValue(":CHANID", chanid);
+
+    if (!query.exec())
+        MythDB::DBError("CardUtil::IsVBoxPresent url", query);
+    else if (query.next())
+        url = query.value(0).toString();
+
+    //now get just the IP address from the url
+    QString ip ="";
+    ip = url.host();
+    LOG(VB_GENERAL, LOG_INFO, QString("VBOX IP found (%1) for inputid (%2)")
+                .arg(ip).arg(inputid));
+
+    if (!ping(ip,signal_timeout))
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("VBOX at IP  (%1) failed to respond to network ping for inputid (%2) timeout (%3)")
+                .arg(ip).arg(inputid).arg(signal_timeout));
+        return false;
+    }
+
+    return true;
 }

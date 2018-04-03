@@ -24,7 +24,7 @@ class MTV_PUBLIC V4LRecorder : public DTVRecorder
 {
     friend class VBIThread;
   public:
-    V4LRecorder(TVRec *rec);
+    explicit V4LRecorder(TVRec *rec);
     virtual ~V4LRecorder();
 
     virtual void StopRecording(void); // RecorderBase
@@ -39,8 +39,8 @@ class MTV_PUBLIC V4LRecorder : public DTVRecorder
     void RunVBIDevice(void);
 
     virtual bool IsHelperRequested(void) const;
-    virtual void FormatTT(struct VBIData *vbidata) {}
-    virtual void FormatCC(uint code1, uint code2) {}
+    virtual void FormatTT(struct VBIData */*vbidata*/) {}
+    virtual void FormatCC(uint /*code1*/, uint /*code2*/) {}
 
   protected:
     QString          audiodevice;
@@ -61,7 +61,7 @@ class MTV_PUBLIC V4LRecorder : public DTVRecorder
 class VBIThread : public MThread
 {
   public:
-    VBIThread(V4LRecorder *_parent) :
+    explicit VBIThread(V4LRecorder *_parent) :
         MThread("VBIThread"), parent(_parent)
     {
         start();

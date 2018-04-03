@@ -36,6 +36,28 @@ static QVariant denullify(const QDateTime &dt)
     return dt.isNull() ? QVariant("0000-00-00 00:00:00") : QVariant(dt);
 }
 
+static void add_genres(MSqlQuery &query, const QStringList &genres,
+                uint chanid, const QDateTime &starttime)
+{
+    QString relevance = QStringLiteral("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    QStringList::const_iterator it = genres.constBegin();
+    for (; (it != genres.end()) &&
+             ((it - genres.constBegin()) < relevance.size()); ++it)
+    {
+        query.prepare(
+           "INSERT INTO programgenres "
+           "       ( chanid,  starttime, genre,  relevance) "
+           "VALUES (:CHANID, :START,    :genre, :relevance)");
+        query.bindValue(":CHANID",    chanid);
+        query.bindValue(":START",     starttime);
+        query.bindValue(":genre",     *it);
+        query.bindValue(":relevance", relevance.at(it - genres.constBegin()));
+
+        if (!query.exec())
+            MythDB::DBError("programgenres insert", query);
+    }
+}
+
 DBPerson::DBPerson(const DBPerson &other) :
     role(other.role), name(other.name)
 {
@@ -179,6 +201,7 @@ DBEvent &DBEvent::operator=(const DBEvent &other)
     season          = other.season;
     episode         = other.episode;
     totalepisodes   = other.totalepisodes;
+    genres          = other.genres;
 
     Squeeze();
 
@@ -736,7 +759,7 @@ uint DBEvent::UpdateDB(
     for (; j != ratings.end(); ++j)
     {
         query.prepare(
-            "INSERT INTO programrating "
+            "INSERT IGNORE INTO programrating "
             "       ( chanid, starttime, system, rating) "
             "VALUES (:CHANID, :START,    :SYS,  :RATING)");
         query.bindValue(":CHANID", chanid);
@@ -747,6 +770,8 @@ uint DBEvent::UpdateDB(
         if (!query.exec())
             MythDB::DBError("programrating insert", query);
     }
+
+    add_genres(query, genres, chanid, starttime);
 
     return 1;
 }
@@ -1030,11 +1055,29 @@ uint DBEvent::InsertDB(MSqlQuery &query, uint chanid) const
         return 0;
     }
 
+    QList<EventRating>::const_iterator j = ratings.begin();
+    for (; j != ratings.end(); ++j)
+    {
+        query.prepare(
+            "INSERT IGNORE INTO programrating "
+            "       ( chanid, starttime, system, rating) "
+            "VALUES (:CHANID, :START,    :SYS,  :RATING)");
+        query.bindValue(":CHANID", chanid);
+        query.bindValue(":START",  starttime);
+        query.bindValue(":SYS",    (*j).system);
+        query.bindValue(":RATING", (*j).rating);
+
+        if (!query.exec())
+            MythDB::DBError("programrating insert", query);
+    }
+
     if (credits)
     {
         for (uint i = 0; i < credits->size(); i++)
             (*credits)[i].InsertDB(query, chanid, starttime);
     }
+
+    add_genres(query, genres, chanid, starttime);
 
     return 1;
 }
@@ -1173,7 +1216,7 @@ uint ProgInfo::InsertDB(MSqlQuery &query, uint chanid) const
     for (; j != ratings.end(); ++j)
     {
         query.prepare(
-            "INSERT INTO programrating "
+            "INSERT IGNORE INTO programrating "
             "       ( chanid, starttime, system, rating) "
             "VALUES (:CHANID, :START,    :SYS,  :RATING)");
         query.bindValue(":CHANID", chanid);
@@ -1190,6 +1233,8 @@ uint ProgInfo::InsertDB(MSqlQuery &query, uint chanid) const
         for (uint i = 0; i < credits->size(); ++i)
             (*credits)[i].InsertDB(query, chanid, starttime);
     }
+
+    add_genres(query, genres, chanid, starttime);
 
     return 1;
 }
@@ -1261,7 +1306,7 @@ static bool start_time_less_than(const DBEvent *a, const DBEvent *b)
 
 void ProgramData::FixProgramList(QList<ProgInfo*> &fixlist)
 {
-    qStableSort(fixlist.begin(), fixlist.end(), start_time_less_than);
+    std::stable_sort(fixlist.begin(), fixlist.end(), start_time_less_than);
 
     QList<ProgInfo*>::iterator it = fixlist.begin();
     while (1)

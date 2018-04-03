@@ -42,12 +42,12 @@ class Guide : public GuideServices
     Q_OBJECT
 
     public:
-    
-        Q_INVOKABLE explicit Guide( QObject *parent = 0 ) {}
+
+        Q_INVOKABLE explicit Guide( QObject */*parent*/ = 0 ) {}
 
     public:
 
-        
+
         DTC::ProgramGuide*  GetProgramGuide     ( const QDateTime &StartTime  ,
                                                   const QDateTime &EndTime    ,
                                                   bool             Details,
@@ -81,6 +81,12 @@ class Guide : public GuideServices
         QStringList         GetCategoryList     ( );
 
         QStringList         GetStoredSearches( const QString   &Type );
+
+        bool                AddToChannelGroup   ( int              ChannelGroupId,
+                                                  int              ChanId );
+
+        bool                RemoveFromChannelGroup ( int           ChannelGroupId,
+                                                     int           ChanId );
 };
 
 // --------------------------------------------------------------------------
@@ -89,10 +95,10 @@ class Guide : public GuideServices
 // QObject actually return QObject* (not the user class *).  If the user class pointer
 // is returned, the script engine treats it as a QVariant and doesn't create a
 // javascript prototype wrapper for it.
-// 
+//
 // This class allows us to keep the rich return types in the main API class while
 // offering the script engine a class it can work with.
-// 
+//
 // Only API Classes that return custom classes needs to implement these wrappers.
 //
 // We should continue to look for a cleaning solution to this problem.
@@ -185,8 +191,24 @@ class ScriptableGuide : public QObject
                 return m_obj.GetStoredSearches( Type );
             )
         }
+
+        bool AddToChannelGroup( int ChannelGroupId,
+                                int ChanId )
+        {
+            SCRIPT_CATCH_EXCEPTION( false,
+                return m_obj.AddToChannelGroup( ChannelGroupId, ChanId );
+            )
+        }
+
+        bool RemoveFromChannelGroup( int ChannelGroupId,
+                                     int ChanId )
+        {
+            SCRIPT_CATCH_EXCEPTION( false,
+                return m_obj.RemoveFromChannelGroup( ChannelGroupId, ChanId );
+            )
+        }
 };
 
 Q_SCRIPT_DECLARE_QMETAOBJECT_MYTHTV( ScriptableGuide, QObject*);
 
-#endif 
+#endif

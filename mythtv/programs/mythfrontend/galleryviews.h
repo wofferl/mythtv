@@ -110,10 +110,10 @@ public:
     int          GetParentId() const { return m_parentId; }
     ImageListK   GetAllNodes() const;
     ImagePtrK    GetSelected() const;
-    ImagePtrK    HasNext() const;
-    ImagePtrK    HasPrev() const;
-    ImagePtrK    Next();
-    ImagePtrK    Prev();
+    ImagePtrK    HasNext(int inc) const;
+    ImagePtrK    HasPrev(int inc) const;
+    ImagePtrK    Next(int inc);
+    ImagePtrK    Prev(int inc);
     QString      GetPosition() const;
     bool         Select(int id, int fallback = 0);
     virtual bool LoadFromDb(int parentId);
@@ -199,7 +199,7 @@ public:
 protected:
     void         SetDirectory(int);
     void         LoadDirThumbs(ImageItem &, int limit, int level = 0);
-    void         PopulateThumbs(ImageItem &, int limit,
+    void         PopulateThumbs(ImageItem &, int thumbsNeeded,
                                 const ImageList &files, const ImageList &dirs,
                                 int level = 0);
     ImageIdList  GetChildren() const  { return m_sequence.mid(1); }

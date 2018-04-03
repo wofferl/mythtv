@@ -88,7 +88,8 @@ DTVRecorder::DTVRecorder(TVRec *rec) :
     _total_duration(0),
     _td_base(0),
     _td_tick_count(0),
-    _td_tick_framerate(0)
+    _td_tick_framerate(0),
+    music_choice(false)
 {
     SetPositionMapType(MARK_GOP_BYFRAME);
     _payload_buffer.reserve(TSPacket::kSize * (50 + 1));
@@ -340,8 +341,15 @@ void DTVRecorder::BufferedWrite(const TSPacket &tspacket, bool insert)
         }
     }
 
-    if (ringBuffer)
-        ringBuffer->Write(tspacket.data(), TSPacket::kSize);
+    if (ringBuffer && ringBuffer->Write(tspacket.data(), TSPacket::kSize) < 0 &&
+        curRecording && curRecording->GetRecordingStatus() != RecStatus::Failing)
+    {
+        LOG(VB_GENERAL, LOG_INFO, LOC +
+            QString("BufferedWrite: Writes are failing, "
+                    "setting status to %1")
+            .arg(RecStatus::toString(RecStatus::Failing, kSingleRecord)));
+        SetRecordingStatus(RecStatus::Failing, __FILE__, __LINE__);
+    }
 }
 
 enum { kExtractPTS, kExtractDTS };
@@ -467,7 +475,7 @@ bool DTVRecorder::FindMPEG2Keyframes(const TSPacket* tspacket)
             else if (PESStreamID::GOPStartCode == stream_id)
             {
                 _last_gop_seen  = _frames_seen_count;
-                hasKeyFrame    |= true;
+                hasKeyFrame     = true;
             }
             else if (PESStreamID::SequenceStartCode == stream_id)
             {
@@ -538,6 +546,14 @@ bool DTVRecorder::FindMPEG2Keyframes(const TSPacket* tspacket)
                 int64_t dts = extract_timestamp(
                     bufptr, bytes_left, kExtractPTS);
                 HandleTimestamps(stream_id, pts, dts);
+                // Detect music choice program (very slow frame rate and audio)
+                if (_first_keyframe < 0
+                    &&  _ts_last[stream_id] - _ts_first[stream_id] > 3*90000)
+                {
+                    hasKeyFrame = true;
+                    music_choice = true;
+                    LOG(VB_GENERAL, LOG_INFO, LOC + "Music Choice program detected");
+                }
             }
         }
     }
@@ -636,6 +652,9 @@ void DTVRecorder::HandleTimestamps(int stream_id, int64_t pts, int64_t dts)
         gap_threshold = 2*90000; // two seconds, compensate for GOP ordering
     }
 
+    if (music_choice)
+        gap_threshold = 8*90000; // music choice uses frames every 6 seconds
+
     if (_ts_last[stream_id] >= 0)
     {
         int64_t diff = ts - _ts_last[stream_id];
@@ -649,7 +668,7 @@ void DTVRecorder::HandleTimestamps(int stream_id, int64_t pts, int64_t dts)
         if (diff < 0)
             diff = -diff;
 
-        if (diff > gap_threshold)
+        if (diff > gap_threshold && _first_keyframe >= 0)
         {
             QMutexLocker locker(&statisticsLock);
 
@@ -766,7 +785,7 @@ bool DTVRecorder::FindAudioKeyframes(const TSPacket*)
 
 /// Non-Audio/Video data. For streams which contain no audio/video,
 /// write just 1 key-frame at the start.
-bool DTVRecorder::FindOtherKeyframes(const TSPacket *tspacket)
+bool DTVRecorder::FindOtherKeyframes(const TSPacket */*tspacket*/)
 {
     if (!ringBuffer || (GetStreamData()->VideoPIDSingleProgram() <= 0x1fff))
         return true;
@@ -829,7 +848,7 @@ void DTVRecorder::HandleKeyframe(int64_t extra)
 
 /** \fn DTVRecorder::FindH264Keyframes(const TSPacket*)
  *  \brief This searches the TS packet to identify keyframes.
- *  \param TSPacket Pointer the the TS packet data.
+ *  \param tspacket Pointer the the TS packet data.
  *  \return Returns true if a keyframe has been found.
  */
 bool DTVRecorder::FindH264Keyframes(const TSPacket *tspacket)
@@ -1115,7 +1134,7 @@ void DTVRecorder::FindPSKeyFrames(const uint8_t *buffer, uint len)
             { // pes_packet_length is meaningless
                 pes_packet_length = -1;
                 _last_gop_seen  = _frames_seen_count;
-                hasKeyFrame    |= true;
+                hasKeyFrame     = true;
             }
             else if (PESStreamID::SequenceStartCode == stream_id)
             { // pes_packet_length is meaningless

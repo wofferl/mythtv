@@ -18,7 +18,6 @@ using namespace std;
 #include "filesysteminfo.h"
 #include "recordinginfo.h"
 #include "remoteutil.h"
-#include "inputgroupmap.h"
 #include "mythdeque.h"
 #include "mythscheduler.h"
 #include "mthread.h"
@@ -29,6 +28,26 @@ class MainServer;
 class AutoExpire;
 
 class Scheduler;
+
+class SchedInputInfo
+{
+  public:
+    SchedInputInfo(void) :
+        inputid(0),
+        sgroupid(0),
+        schedgroup(false),
+        group_inputs(),
+        conflicting_inputs(),
+        conflictlist(NULL) {};
+    ~SchedInputInfo(void) {};
+
+    uint inputid;
+    uint sgroupid;
+    bool schedgroup;
+    vector<uint> group_inputs;
+    vector<uint> conflicting_inputs;
+    RecList *conflictlist;
+};
 
 class Scheduler : public MThread, public MythScheduler
 {
@@ -53,6 +72,8 @@ class Scheduler : public MThread, public MythScheduler
     { Reschedule(ScheduledRecording::BuildPlaceRequest(why)); };
 
     void AddRecording(const RecordingInfo&);
+    void AddRecording(const ProgramInfo& prog)
+    { AddRecording(RecordingInfo(prog)); };
     void FillRecordListFromDB(uint recordid = 0);
     void FillRecordListFromMaster(void);
 
@@ -100,6 +121,8 @@ class Scheduler : public MThread, public MythScheduler
 
     int GetError(void) const { return error; }
 
+    void AddChildInput(uint parentid, uint childid);
+
   protected:
     virtual void run(void); // MThread
 
@@ -115,6 +138,7 @@ class Scheduler : public MThread, public MythScheduler
 
     bool VerifyCards(void);
 
+    void InitInputInfoMap(void);
     void CreateTempTables(void);
     void DeleteTempTables(void);
     void UpdateDuplicates(void);
@@ -163,7 +187,7 @@ class Scheduler : public MThread, public MythScheduler
     bool ChangeRecordingEnd(RecordingInfo *oldp, RecordingInfo *newp);
 
     bool CheckShutdownServer(int prerollseconds, QDateTime &idleSince,
-                             bool &blockShutdown);
+                             bool &blockShutdown, uint logmask);
     void ShutdownServer(int prerollseconds, QDateTime &idleSince);
     void PutInactiveSlavesToSleep(void);
     bool WakeUpSlave(QString slaveHostname, bool setWakingStatus = true);
@@ -192,6 +216,7 @@ class Scheduler : public MThread, public MythScheduler
                          int prerollseconds);
     void HandleRecordingStatusChange(
         RecordingInfo &ri, RecStatus::Type recStatus, const QString &details);
+    bool AssignGroupInput(RecordingInfo &ri);
     void HandleIdleShutdown(
         bool &blockShutdown, QDateTime &idleSince, int prerollseconds,
         int idleTimeoutSecs, int idleWaitForRecordingTime,
@@ -221,11 +246,10 @@ class Scheduler : public MThread, public MythScheduler
     RecList reclist;
     RecList worklist;
     RecList livetvlist;
+    QMap<uint, SchedInputInfo> sinputinfomap;
     vector<RecList *> conflictlists;
-    QMap<uint, RecList *> conflictlistmap;
     QMap<uint, RecList> recordidlistmap;
     QMap<QString, RecList> titlelistmap;
-    InputGroupMap igrp;
 
     QDateTime schedTime;
     bool reclist_changed;
@@ -237,7 +261,7 @@ class Scheduler : public MThread, public MythScheduler
     QMap<int, EncoderLink *> *m_tvList;
     AutoExpire *m_expirer;
 
-    QMap<QString, bool> recPendingList;
+    QSet<uint> m_schedorder_warned;
 
     bool doRun;
 
@@ -259,12 +283,15 @@ class Scheduler : public MThread, public MythScheduler
     // Try to avoid LiveTV sessions until this time
     QDateTime livetvTime;
 
+    QDateTime lastPrepareTime;
+
     OpenEndType m_openEnd;
 
     // cache IsSameProgram()
     typedef pair<const RecordingInfo*,const RecordingInfo*> IsSameKey;
     typedef QMap<IsSameKey,bool> IsSameCacheType;
     mutable IsSameCacheType cache_is_same_program;
+    int tmLastLog;
 };
 
 #endif

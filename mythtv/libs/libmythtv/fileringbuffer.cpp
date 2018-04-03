@@ -176,7 +176,7 @@ static QString local_sub_filename(QFileInfo &fileInfo)
             return fi.absoluteFilePath();
     }
 
-    return QString::null;
+    return QString();
 }
 
 bool FileRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
@@ -352,7 +352,9 @@ bool FileRingBuffer::OpenFile(const QString &lfilename, uint retry_ms)
         if (suffixPos > 0)
         {
             baseName = tmpSubName.left(suffixPos);
-            extension = tmpSubName.right(suffixPos-1);
+            int extnleng = tmpSubName.size() - baseName.size() - 1;
+            extension = tmpSubName.right(extnleng);
+
             if (is_subtitle_possible(extension))
             {
                 QMutexLocker locker(&subExtLock);
@@ -440,12 +442,13 @@ bool FileRingBuffer::IsOpen(void) const
  *   This will re-read the file forever until the
  *   end-of-file is reached or the buffer is full.
  *
- *  \param fd   File descriptor to read from
+ *  \param fd Ignored. The File descriptor to read is now stored
+ *            as part of the RingBuffer parent structure.
  *  \param data Pointer to where data will be written
  *  \param sz   Number of bytes to read
  *  \return Returns number of bytes read
  */
-int FileRingBuffer::safe_read(int fd, void *data, uint sz)
+int FileRingBuffer::safe_read(int /*fd*/, void *data, uint sz)
 {
     int ret;
     unsigned tot = 0;

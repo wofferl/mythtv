@@ -9,9 +9,7 @@
 #include <QKeyEvent>
 #include <QCryptographicHash>
 #include <QTimer>
-#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
 #include <QUrlQuery>
-#endif
 
 #include "mthread.h"
 #include "mythdate.h"
@@ -205,7 +203,7 @@ QByteArray DigestMd5Response(QString response, QString option,
 class APHTTPRequest
 {
   public:
-    APHTTPRequest(QByteArray& data) : m_readPos(0), m_data(data), m_size(0),
+    explicit APHTTPRequest(QByteArray& data) : m_readPos(0), m_data(data), m_size(0),
                                       m_incomingPartial(false)
     {
         Process();
@@ -278,7 +276,6 @@ class APHTTPRequest
             return;
         m_method = vals[0].trimmed();
         QUrl url = QUrl::fromEncoded(vals[1].trimmed());
-#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
         m_uri = url.path(QUrl::FullyEncoded).toLocal8Bit();
         m_queries.clear();
         {
@@ -288,10 +285,6 @@ class APHTTPRequest
             for ( ; it != items.constEnd(); ++it)
                 m_queries << qMakePair(it->first.toLatin1(), it->second.toLatin1());
         }
-#else
-        m_uri = url.encodedPath();
-        m_queries = url.encodedQueryItems();
-#endif
         if (m_method.isEmpty() || m_uri.isEmpty())
             return;
 

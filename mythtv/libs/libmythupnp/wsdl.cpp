@@ -179,7 +179,7 @@ bool Wsdl::GetWSDL( HTTPRequest *pRequest )
         // Create Messages
         // ------------------------------------------------------------------
 
-        QDomElement oMsg = CreateMessage( oInfo, sInputMsgName, sRequestTypeName );
+        QDomElement oMsg = CreateMessage( sInputMsgName, sRequestTypeName );
 
         m_oRoot.insertAfter( oMsg, m_oLastMsg );
         m_oLastMsg = oMsg;
@@ -194,7 +194,7 @@ bool Wsdl::GetWSDL( HTTPRequest *pRequest )
         // Create Response message 
         // ------------------------------------------------------------------
 
-        oMsg = CreateMessage( oInfo, sOutputMsgName, sResponseTypeName );
+        oMsg = CreateMessage( sOutputMsgName, sResponseTypeName );
 
         m_oRoot.insertAfter( oMsg, m_oLastMsg );
         m_oLastMsg = oMsg;
@@ -359,8 +359,7 @@ QDomElement Wsdl::CreateBindingOperation( MethodInfo    &oInfo,
 //
 /////////////////////////////////////////////////////////////////////////////
 
-QDomElement Wsdl::CreateMessage( MethodInfo   &oInfo,
-                                 QString       sMsgName, 
+QDomElement Wsdl::CreateMessage( QString       sMsgName, 
                                  QString       sTypeName )
 {
     QDomElement oMsg = createElement( "message" );
@@ -404,8 +403,6 @@ QDomElement Wsdl::CreateMethodType( MethodInfo   &oInfo,
         QDomElement oNode = createElement( "xs:element" );
 
         QString sType = oInfo.m_oMethod.typeName();
-
-        sType.remove( QChar('*') );
 
         sTypeName.remove( "Response" );
 
@@ -473,8 +470,6 @@ QDomElement Wsdl::CreateMethodType( MethodInfo   &oInfo,
 
 bool Wsdl::IsCustomType( QString &sTypeName )
 {
-    sTypeName.remove( QChar('*') );
-
     int id = QMetaType::type( sTypeName.toUtf8() );
 
     switch( id )
@@ -527,7 +522,10 @@ QString Wsdl::AddTypeInfo( QString sType )
 
 QString Wsdl::ReadClassInfo( const QMetaObject *pMeta, const QString &sKey )
 {
-    int nIdx = pMeta->indexOfClassInfo( sKey.toUtf8() );
+    int nIdx = -1;
+
+    if (pMeta)
+        nIdx = pMeta->indexOfClassInfo( sKey.toUtf8() );
 
     if (nIdx >=0)
         return pMeta->classInfo( nIdx ).value();

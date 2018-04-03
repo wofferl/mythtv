@@ -23,7 +23,7 @@ class FirewireSignalMonitor;
 class FirewireTableMonitorThread : public MThread
 {
   public:
-    FirewireTableMonitorThread(FirewireSignalMonitor *p) :
+    explicit FirewireTableMonitorThread(FirewireSignalMonitor *p) :
         MThread("FirewireTableMonitor"), m_parent(p) { start(); }
     virtual ~FirewireTableMonitorThread() { wait(); m_parent = NULL; }
     virtual void run(void);
@@ -36,6 +36,7 @@ class FirewireSignalMonitor : public DTVSignalMonitor, public TSDataListener
     friend class FirewireTableMonitorThread;
   public:
     FirewireSignalMonitor(int db_cardnum, FirewireChannel *_channel,
+                          bool _release_stream,
                           uint64_t _flags = kFWSigMon_WaitForPower);
 
     virtual void HandlePAT(const ProgramAssociationTable*);

@@ -2,10 +2,7 @@ include ( ../../settings.pro )
 include ( ../../version.pro )
 include ( ../programs-libs.pro )
 
-QT += network xml sql
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += widgets
-}
+QT += network xml sql widgets
 
 INCLUDEPATH += ../../libs/libmythtv/channelscan
 DEPENDPATH += ../../libs/libmythtv/channelscan
@@ -44,3 +41,15 @@ macx {
 }
 
 using_x11:DEFINES += USING_X11
+
+using_openmax {
+    contains( HAVE_OPENMAX_BROADCOM, yes ) {
+        ! using_opengl {
+            # For raspberry pi ubuntu
+            exists(/usr/lib/arm-linux-gnueabihf/mesa-egl/libEGL.so) {
+                QMAKE_RPATHDIR += /usr/lib/arm-linux-gnueabihf/mesa-egl
+            }
+        }
+    }
+}
+

@@ -23,7 +23,7 @@ HEADERS += serviceexp.h service.h datacontracthelper.h
 HEADERS += services/mythServices.h    services/guideServices.h
 HEADERS += services/contentServices.h services/dvrServices.h
 HEADERS += services/channelServices.h services/videoServices.h
-HEADERS += services/captureServices.h
+HEADERS += services/captureServices.h services/musicServices.h
 HEADERS += services/frontendServices.h
 HEADERS += services/imageServices.h
 HEADERS += services/rttiServices.h
@@ -60,9 +60,15 @@ HEADERS += datacontracts/frontend.h              datacontracts/frontendList.h
 HEADERS += datacontracts/cutting.h               datacontracts/cutList.h
 HEADERS += datacontracts/backendInfo.h           datacontracts/envInfo.h
 HEADERS += datacontracts/buildInfo.h             datacontracts/logInfo.h
+HEADERS += datacontracts/genre.h                 datacontracts/genreList.h
+HEADERS += datacontracts/musicMetadataInfo.h     datacontracts/musicMetadataInfoList.h
+
+HEADERS += enums/recStatus.h
 
 SOURCES += service.cpp
+SOURCES += enums/recStatus.cpp
 
+INCLUDEPATH += ./enums
 INCLUDEPATH += ./datacontracts
 INCLUDEPATH += ./services
 
@@ -81,10 +87,13 @@ incServices.path = $${PREFIX}/include/mythtv/libmythservicecontracts/services/
 incServices.files  = services/mythServices.h    services/guideServices.h
 incServices.files += services/contentServices.h services/dvrServices.h
 incServices.files += services/channelServices.h services/videoServices.h
-incServices.files += services/captureServices.h
+incServices.files += services/captureServices.h services/musicServices.h
 incServices.files += services/frontendServices.h
 incServices.files += services/imageServices.h
 incServices.files += services/rttiServices.h
+
+incEnums.path = $${PREFIX}/include/mythtv/libmythservicecontracts/enums/
+incEnums.files = enums/recStatus.h
 
 incDatacontracts.path = $${PREFIX}/include/mythtv/libmythservicecontracts/datacontracts/
 incDatacontracts.files  = datacontracts/connectionInfo.h      datacontracts/databaseInfo.h
@@ -94,6 +103,7 @@ incDatacontracts.files += datacontracts/wolInfo.h             datacontracts/chan
 incDatacontracts.files += datacontracts/videoSource.h         datacontracts/videoSourceList.h
 incDatacontracts.files += datacontracts/videoMultiplex.h      datacontracts/videoMultiplexList.h
 incDatacontracts.files += datacontracts/videoMetadataInfo.h   datacontracts/videoMetadataInfoList.h
+incDatacontracts.files += datacontracts/musicMetadataInfo.h   datacontracts/musicMetadataInfoList.h
 incDatacontracts.files += datacontracts/blurayInfo.h          datacontracts/videoLookupInfo.h
 incDatacontracts.files += datacontracts/timeZoneInfo.h        datacontracts/videoLookupInfoList.h
 incDatacontracts.files += datacontracts/versionInfo.h         datacontracts/lineup.h
@@ -116,7 +126,7 @@ incDatacontracts.files += datacontracts/cutting.h             datacontracts/cutL
 incDatacontracts.files += datacontracts/backendInfo.h         datacontracts/envInfo.h
 incDatacontracts.files += datacontracts/buildInfo.h           datacontracts/logInfo.h
 
-INSTALLS += inc incServices incDatacontracts
+INSTALLS += inc incServices incDatacontracts incEnums
 
 macx {
     QMAKE_LFLAGS_SHLIB += -flat_namespace
@@ -130,10 +140,9 @@ include ( ../libs-targetfix.pro )
 
 LIBS += $$EXTRA_LIBS $$LATE_LIBS
 
-android {
-    DEPENDPATH += ../libmythbase
-    INCLUDEPATH += ../libmythbase
-    HEADERS += ../libmyth/programtypes.h
-    SOURCES += ../libmyth/programtypes.cpp
-    LIBS += -L../libmythbase -lmythbase-$${LIBVERSION}
-}
+test_clean.commands = -cd test/ && $(MAKE) -f Makefile clean
+clean.depends = test_clean
+QMAKE_EXTRA_TARGETS += test_clean clean
+test_distclean.commands = -cd test/ && $(MAKE) -f Makefile distclean
+distclean.depends = test_distclean
+QMAKE_EXTRA_TARGETS += test_distclean distclean

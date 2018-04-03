@@ -8,7 +8,8 @@
 #define O_LARGEFILE 0
 #endif
 
-#define LOC      QString("SH(%1): ").arg(_device)
+#define LOC      QString("SH%1(%2): ").arg(_recorder_ids_string) \
+                                      .arg(_device)
 
 StreamHandler::StreamHandler(const QString &device) :
     MThread("StreamHandler"),
@@ -48,6 +49,27 @@ StreamHandler::~StreamHandler()
         Stop();
 }
 
+void StreamHandler::AddRecorderId(int id)
+{
+    if (id < 0)
+        return;
+
+    _recorder_ids_string.clear();
+    _recorder_ids.insert(id);
+    foreach (const int &value, _recorder_ids)
+        _recorder_ids_string += QString("[%1]").arg(value);
+}
+
+void StreamHandler::DelRecorderId(int id)
+{
+    if (id < 0)
+        return;
+    _recorder_ids.remove(id);
+    _recorder_ids_string.clear();
+    foreach (const int &value, _recorder_ids)
+        _recorder_ids_string += QString("[%1]").arg(value);
+}
+
 void StreamHandler::AddListener(MPEGStreamData *data,
                                 bool allow_section_reader,
                                 bool needs_buffering,
@@ -83,16 +105,7 @@ void StreamHandler::AddListener(MPEGStreamData *data,
         _needs_buffering      |= needs_buffering;
     }
 
-    StreamDataList::iterator it = _stream_data_list.find(data);
-    if (it != _stream_data_list.end())
-    {
-        LOG(VB_GENERAL, LOG_ERR, LOC + "Programmer Error, attempted "
-                "to add a listener which is already being listened to.");
-    }
-    else
-    {
-        _stream_data_list[data] = output_file;
-    }
+    _stream_data_list[data] = output_file;
 
     _listener_lock.unlock();
 

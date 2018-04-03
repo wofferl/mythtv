@@ -1,9 +1,6 @@
 include ( ../../settings.pro )
 
-QT += network sql
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += widgets
-}
+QT += network sql widgets
 
 TEMPLATE = lib
 TARGET = mythprotoserver-$$LIBVERSION
@@ -32,6 +29,7 @@ SOURCES += requesthandler/messagehandler.cpp
 
 INCLUDEPATH += ../libmythbase ../libmyth ../libmythtv ../libmythui
 INCLUDEPATH += ../../external/FFmpeg ../.. ../ ./
+INCLUDEPATH += ../libmythservicecontracts
 
 DEPENDPATH += ../ ../libmythbase ../libmythtv ../libmyth ../libmythui
 DEPENDPATH += ../libmythupnp ../libmythservicecontracts

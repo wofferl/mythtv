@@ -960,11 +960,11 @@ void ProgLister::FillViewList(const QString &view)
         m_viewTextList.push_back(tr("All"));
         m_viewList.push_back("= 0.0");
         m_viewTextList.push_back(tr("Unrated"));
-        m_viewList.push_back(QString("= 10.0"));
+        m_viewList.push_back(QString(">= %1").arg((10 - 0.5) / 10.0 - 0.001));
         m_viewTextList.push_back(tr("%n star(s)", "", 10));
         for (int i = 9; i > 0; i--)
         {
-            float stars = i / 10.0;
+            float stars = (i - 0.5 ) / 10.0 - 0.001;
             m_viewList.push_back(QString(">= %1").arg(stars));
             m_viewTextList.push_back(tr("%n star(s) and above", "", i));
         }
@@ -1063,14 +1063,20 @@ class plTitleSort : public plCompare
         if (a->GetRecordingStatus() == b->GetRecordingStatus())
             return a->GetScheduledStartTime() < b->GetScheduledStartTime();
 
-        if (a->GetRecordingStatus() == RecStatus::Recording)
+        if (a->GetRecordingStatus() == RecStatus::Recording ||
+            a->GetRecordingStatus() == RecStatus::Tuning ||
+            a->GetRecordingStatus() == RecStatus::Failing)
             return true;
-        if (b->GetRecordingStatus() == RecStatus::Recording)
+        if (b->GetRecordingStatus() == RecStatus::Recording ||
+            b->GetRecordingStatus() == RecStatus::Tuning ||
+            b->GetRecordingStatus() == RecStatus::Failing)
             return false;
 
-        if (a->GetRecordingStatus() == RecStatus::WillRecord)
+        if (a->GetRecordingStatus() == RecStatus::WillRecord ||
+            a->GetRecordingStatus() == RecStatus::Pending)
             return true;
-        if (b->GetRecordingStatus() == RecStatus::WillRecord)
+        if (b->GetRecordingStatus() == RecStatus::WillRecord ||
+            b->GetRecordingStatus() == RecStatus::Pending)
             return false;
 
         return a->GetScheduledStartTime() < b->GetScheduledStartTime();

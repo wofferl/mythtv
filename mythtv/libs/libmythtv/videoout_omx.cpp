@@ -1,15 +1,13 @@
-#ifdef USING_OPENGLES
-#define OSD_EGL // OSD with EGL
-#endif
+
+#include "videoout_omx.h"
 
 #ifdef OSD_EGL /* includes QJson with enum value named Bool, must go before EGL/egl.h */
 # include "mythpainter_ogl.h"
+# include "mythpainter_qimage.h"
 #endif //def OSD_EGL
 
 /* must go before X11/X.h due to #define None 0L */
 #include "privatedecoder_omx.h" // For PrivateDecoderOMX::s_name
-
-#include "videoout_omx.h"
 
 #include <cstddef>
 #include <cassert>
@@ -28,9 +26,6 @@
 #ifdef OSD_EGL
 #include <EGL/egl.h>
 #include <QtGlobal>
-#if QT_VERSION >= QT_VERSION_CHECK(5, 4, 0)
-#include <QtPlatformHeaders/QEGLNativeContext>
-#endif
 #endif
 
 // MythTV
@@ -44,6 +39,7 @@
 #endif //def OSD_EGL
 
 #include "mythmainwindow.h"
+#include "mythuihelper.h"
 #include "mythcorecontext.h"
 
 #include "filtermanager.h"
@@ -57,7 +53,7 @@ using namespace omxcontext;
 /*
  * Macros
  */
-#define LOC QString("VOMX:%1 ").arg(m_render.Id())
+#define LOC QString("VideoOutputOMX: ")
 
 // Roundup a value: y = ROUNDUP(x,4)
 #define ROUNDUP( _x,_z) ((_x) + ((-(int)(_x)) & ((_z) -1)) )
@@ -81,9 +77,7 @@ using namespace omxcontext;
  * Types
  */
 #ifdef OSD_EGL
-typedef MythRenderOpenGL2ES MythRenderBase;
-
-class MythRenderEGL : public MythRenderBase
+class MythRenderEGL : public MythRenderOpenGL2ES
 {
     // No copying
     MythRenderEGL(MythRenderEGL&);
@@ -102,7 +96,7 @@ class MythRenderEGL : public MythRenderBase
 #endif
 
   protected:
-    virtual ~MythRenderEGL(); // Use MythRenderBase::DecrRef to delete
+    virtual ~MythRenderEGL(); // Use MythRenderOpenGL2ES::DecrRef to delete
 
     EGLNativeWindowType createNativeWindow();
     void destroyNativeWindow();
@@ -118,8 +112,110 @@ private:
     DISPMANX_DISPLAY_HANDLE_T m_dispman_display;
 #endif
 };
-#endif //def OSD_EGL
 
+class GlOsdThread : public MThread
+{
+    public:
+        GlOsdThread() :
+            MThread("GlOsdThread")
+        {
+            isRunning = true;
+            m_osdImage = 0;
+            m_EGLRender = 0;
+            m_Painter = 0;
+            rectsChanged = false;
+            m_lock.lock();
+        }
+        virtual void run()
+        {
+            RunProlog();
+            m_EGLRender = new MythRenderEGL();
+            if (m_EGLRender->create())
+            {
+                m_EGLRender->Init();
+                m_Painter = new MythOpenGLPainter(m_EGLRender);
+                m_Painter->SetSwapControl(false);
+                LOG(VB_GENERAL, LOG_INFO, LOC + __func__ +
+                ": OSD display uses threaded opengl");
+
+            }
+            else
+            {
+                LOG(VB_GENERAL, LOG_ERR, LOC + __func__ +
+                    ": failed to create MythRenderEGL for OSD");
+                m_EGLRender = 0;
+                m_Painter = 0;
+                isRunning = false;
+            }
+            m_lock.unlock();
+            while (isRunning)
+            {
+                m_lock.lock();
+                m_wait.wait(&m_lock);
+                if (!isRunning) {
+                    m_lock.unlock();
+                    break;
+                }
+
+                if (rectsChanged)
+                {
+                    m_EGLRender->SetViewPort(m_displayRect);
+                    m_EGLRender->SetViewPort(m_glRect,true);
+                    rectsChanged = false;
+                }
+                m_EGLRender->makeCurrent();
+                m_EGLRender->BindFramebuffer(0);
+                m_Painter->DrawImage(m_bounds, m_osdImage,
+                                  m_bounds, 255);
+                m_EGLRender->swapBuffers();
+                m_EGLRender->SetBackground(0, 0, 0, 0);
+                m_EGLRender->ClearFramebuffer();
+                m_Painter->DeleteTextures();
+                m_EGLRender->doneCurrent();
+
+                m_lock.unlock();
+            }
+            if (m_osdImage)
+                m_osdImage->DecrRef(), m_osdImage = 0;
+            if (m_Painter)
+                delete m_Painter, m_Painter = 0;
+            if (m_EGLRender)
+                m_EGLRender->DecrRef(), m_EGLRender = 0;
+            RunEpilog();
+        }
+        // All of the below methods are called from another thread
+        void shutdown()
+        {
+            isRunning=false;
+            m_lock.tryLock(2000);
+            m_wait.wakeAll();
+            m_lock.unlock();
+            wait(2000);
+        }
+        bool isValid() {
+            return isRunning;
+        }
+        void setRects(const QRect &displayRect,const QRect &glRect)
+        {
+            m_displayRect = displayRect;
+            m_glRect = glRect;
+            rectsChanged = true;
+        }
+    private:
+        MythRenderEGL *m_EGLRender;
+        MythOpenGLPainter *m_Painter;
+        bool isRunning;
+        QRect m_displayRect;
+        QRect m_glRect;
+        bool rectsChanged;
+    public:
+        QMutex  m_lock;
+        QWaitCondition m_wait;
+        MythImage *m_osdImage;
+        QRect m_bounds;
+};
+
+#endif //def OSD_EGL
 
 /*
  * Constants
@@ -150,7 +246,8 @@ void VideoOutputOMX::GetRenderOptions(render_opts &opts,
     (*opts.deints)[kName].append(kName + "linedouble");
 #endif
 #ifdef OSD_EGL
-    (*opts.osds)[kName].append("opengl2");
+    (*opts.osds)[kName].append("opengl");
+    (*opts.osds)[kName].append("threaded");
 #endif
     (*opts.osds)[kName].append("softblend");
 
@@ -180,8 +277,15 @@ QStringList VideoOutputOMX::GetAllowedRenderers(
 VideoOutputOMX::VideoOutputOMX() :
     m_render(gCoreContext->GetSetting("OMXVideoRender", VIDEO_RENDER), *this),
     m_imagefx(gCoreContext->GetSetting("OMXVideoFilter", IMAGE_FX), *this),
-    m_context(0), m_osdpainter(0), m_backgroundscreen(0)
+    m_backgroundscreen(0), m_videoPaused(false)
 {
+#ifdef OSD_EGL
+    m_context = 0;
+    m_osdpainter = 0;
+    m_threaded_osdpainter = 0;
+    m_glOsdThread = 0;
+    m_changed = false;
+#endif
     init(&av_pause_frame, FMT_YV12, NULL, 0, 0, 0);
 
     if (gCoreContext->GetNumSetting("UseVideoModes", 0))
@@ -225,15 +329,25 @@ VideoOutputOMX::~VideoOutputOMX()
     DeleteBuffers();
 
 #ifdef OSD_EGL
-    delete m_osdpainter, m_osdpainter = 0;
+    if (m_osdpainter)
+        delete m_osdpainter, m_osdpainter = 0;
     if (m_context)
         m_context->DecrRef(), m_context = 0;
+    if (m_glOsdThread)
+    {
+        m_glOsdThread->shutdown();
+        delete m_glOsdThread;
+        m_glOsdThread = 0;
+    }
+    if (m_threaded_osdpainter)
+        delete m_threaded_osdpainter, m_threaded_osdpainter = 0;
 #endif
 
     if (m_backgroundscreen)
     {
         m_backgroundscreen->Close();
         m_backgroundscreen = 0;
+        GetMythUI()->RemoveCurrentLocation();
     }
 }
 
@@ -306,11 +420,12 @@ bool VideoOutputOMX::Init(          // Return true if successful
                   kKeepPrebuffer);
 
     // Allocate video buffers
-    if (!CreateBuffers(video_dim_buf, video_dim_disp, winid))
+    if (!CreateBuffers(video_dim_buf, video_dim_disp))
         return false;
 
+    bool osdIsSet = false;
 #ifdef OSD_EGL
-    if (GetOSDRenderer() == "opengl2")
+    if (GetOSDRenderer() == "opengl")
     {
         MythRenderEGL *render = new MythRenderEGL();
         if (render->create())
@@ -320,15 +435,34 @@ bool VideoOutputOMX::Init(          // Return true if successful
             MythOpenGLPainter *p = new MythOpenGLPainter(m_context);
             p->SetSwapControl(false);
             m_osdpainter = p;
+            LOG(VB_GENERAL, LOG_INFO, LOC + __func__ +
+                ": OSD display uses opengl");
+            osdIsSet = true;
         }
         else
         {
             LOG(VB_GENERAL, LOG_ERR, LOC + __func__ +
-                " failed to create MythRenderEGL");
+                ": failed to create MythRenderEGL");
             render->DecrRef();
+            m_context = 0;
+            m_osdpainter = 0;
         }
     }
+    if (GetOSDRenderer() == "threaded")
+    {
+        m_glOsdThread = new GlOsdThread();
+        m_glOsdThread->start();
+        // Wait until set up
+        m_glOsdThread->m_lock.lock();
+        m_glOsdThread->m_lock.unlock();
+        if (m_glOsdThread->isValid())
+            osdIsSet = true;
+    }
 #endif
+
+    if (!osdIsSet)
+        LOG(VB_GENERAL, LOG_INFO, LOC + __func__ +
+                ": OSD display uses softblend");
 
     MoveResize();
 
@@ -426,20 +560,20 @@ bool VideoOutputOMX::SetDeinterlacingEnabled(bool interlaced)
 }
 
 // virtual
-bool VideoOutputOMX::SetupDeinterlace(bool interlaced, const QString &ovrf)
+bool VideoOutputOMX::SetupDeinterlace(bool interlaced, const QString &overridefilter)
 {
     if (!m_imagefx.IsValid())
-        return VideoOutput::SetupDeinterlace(interlaced, ovrf);
+        return VideoOutput::SetupDeinterlace(interlaced, overridefilter);
 
     QString deintfiltername;
     if (db_vdisp_profile)
-        deintfiltername = db_vdisp_profile->GetFilteredDeint(ovrf);
+        deintfiltername = db_vdisp_profile->GetFilteredDeint(overridefilter);
 
     if (!deintfiltername.contains(kName))
     {
         if (m_deinterlacing && m_deintfiltername.contains(kName))
             SetImageFilter(OMX_ImageFilterNone);
-        return VideoOutput::SetupDeinterlace(interlaced, ovrf);
+        return VideoOutput::SetupDeinterlace(interlaced, overridefilter);
     }
 
     if (m_deinterlacing == interlaced && deintfiltername == m_deintfiltername)
@@ -615,6 +749,10 @@ void VideoOutputOMX::UpdatePauseFrame(int64_t &disp_timecode)
         CopyFrame(&av_pause_frame, used_frame);
     }
 
+    // Suppress deinterlace while paused to prevent the jiggles.
+    av_pause_frame.interlaced_frame = 0;
+    av_pause_frame.top_field_first = 0;
+
     disp_timecode = av_pause_frame.disp_timecode;
 }
 
@@ -633,9 +771,11 @@ void VideoOutputOMX::ProcessFrame(VideoFrame *frame, OSD *osd,
         return;
     }
 
+    m_videoPaused = false;
     if (!frame)
     {
         // Rotate pause frames
+        m_videoPaused = true;
         vbuffers.Enqueue(kVideoBuffer_pause, vbuffers.Dequeue(kVideoBuffer_pause));
         frame = vbuffers.GetScratchFrame();
         CopyFrame(frame, &av_pause_frame);
@@ -659,7 +799,7 @@ void VideoOutputOMX::ProcessFrame(VideoFrame *frame, OSD *osd,
 
 // tells show what frame to be show, do other last minute stuff
 // pure virtual
-void VideoOutputOMX::PrepareFrame(VideoFrame *buffer, FrameScanType scan, OSD *osd)
+void VideoOutputOMX::PrepareFrame(VideoFrame *buffer, FrameScanType /*scan*/, OSD */*osd*/)
 {
     if (IsErrored())
     {
@@ -687,6 +827,7 @@ void VideoOutputOMX::PrepareFrame(VideoFrame *buffer, FrameScanType scan, OSD *o
                                           m_backgroundscreen))
         {
             mainStack->AddScreen(m_backgroundscreen, false);
+            GetMythUI()->AddCurrentLocation("Playback");
             if (mainWindow->GetPaintWindow())
                 mainWindow->GetPaintWindow()->update();
             qApp->processEvents();
@@ -700,7 +841,7 @@ void VideoOutputOMX::PrepareFrame(VideoFrame *buffer, FrameScanType scan, OSD *o
 
 // BLT the last prepared frame to the screen as quickly as possible.
 // pure virtual
-void VideoOutputOMX::Show(FrameScanType scan)
+void VideoOutputOMX::Show(FrameScanType /*scan*/)
 {
     if (IsErrored())
     {
@@ -736,7 +877,22 @@ void VideoOutputOMX::Show(FrameScanType scan)
 
     hdr->nFilledLen = frame->offsets[2] + (frame->offsets[1] >> 2);
     hdr->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
+#ifdef OMX_BUFFERFLAG_INTERLACED
+    if (frame->interlaced_frame)
+        hdr->nFlags |= OMX_BUFFERFLAG_INTERLACED;
+#endif
+#ifdef OMX_BUFFERFLAG_TOP_FIELD_FIRST
+    if (frame->top_field_first)
+        hdr->nFlags |= OMX_BUFFERFLAG_TOP_FIELD_FIRST;
+#endif
     OMXComponent &cmpnt = m_imagefx.IsValid() ? m_imagefx : m_render;
+    // Paused - do not display anything unless softblend set
+    if (m_videoPaused && GetOSDRenderer() != "softblend")
+    {
+        // fake out that the buffer was already emptied
+        EmptyBufferDone(cmpnt, hdr);
+        return;
+    }
     OMX_ERRORTYPE e = OMX_EmptyThisBuffer(cmpnt.Handle(), hdr);
     if (e != OMX_ErrorNone)
     {
@@ -756,7 +912,11 @@ void VideoOutputOMX::MoveResizeWindow(QRect)
 bool VideoOutputOMX::hasFullScreenOSD(void) const
 {
 #ifdef OSD_EGL
-    if (m_context && m_osdpainter)
+    if (GetOSDRenderer() == "opengl"
+        && m_context && m_osdpainter)
+        return true;
+    if (GetOSDRenderer() == "threaded"
+        && m_glOsdThread && m_glOsdThread->isValid())
         return true;
 #endif
     return VideoOutput::hasFullScreenOSD();
@@ -765,17 +925,23 @@ bool VideoOutputOMX::hasFullScreenOSD(void) const
 // virtual
 MythPainter *VideoOutputOMX::GetOSDPainter(void)
 {
-    return m_osdpainter ? m_osdpainter : VideoOutput::GetOSDPainter();
+#ifdef OSD_EGL
+    if (GetOSDRenderer() == "opengl")
+        return m_osdpainter;
+    if (GetOSDRenderer() == "threaded")
+        return m_threaded_osdpainter;
+#endif
+    return VideoOutput::GetOSDPainter();
 }
 
 // virtual
 bool VideoOutputOMX::DisplayOSD(VideoFrame *frame, OSD *osd)
 {
 #ifdef OSD_EGL
-    if (m_context && m_osdpainter)
+    if (GetOSDRenderer() == "opengl"
+        && m_context && m_osdpainter)
     {
         m_context->makeCurrent();
-
         m_context->BindFramebuffer(0);
 
         QRect bounds = GetTotalOSDBounds();
@@ -797,6 +963,61 @@ bool VideoOutputOMX::DisplayOSD(VideoFrame *frame, OSD *osd)
         }
 
         m_context->doneCurrent();
+        return true;
+    }
+
+    if (GetOSDRenderer() == "threaded"
+        && m_glOsdThread && m_glOsdThread->isValid())
+    {
+        if (!m_threaded_osdpainter)
+        {
+            m_threaded_osdpainter = new MythQImagePainter();
+            if (!m_threaded_osdpainter)
+                return false;
+        }
+        QSize osd_size = GetTotalOSDBounds().size();
+        if (m_glOsdThread->m_osdImage && (m_glOsdThread->m_osdImage->size() != osd_size))
+        {
+            LOG(VB_PLAYBACK, LOG_INFO, LOC + QString("OSD size changed."));
+            m_glOsdThread->m_osdImage->DecrRef();
+            m_glOsdThread->m_osdImage = 0;
+        }
+        if (!m_glOsdThread->m_osdImage)
+        {
+            m_glOsdThread->m_osdImage = m_threaded_osdpainter->GetFormatImage();
+            if (m_glOsdThread->m_osdImage)
+            {
+                QImage blank = QImage(osd_size,
+                    QImage::Format_ARGB32_Premultiplied);
+                m_glOsdThread->m_osdImage->Assign(blank);
+                m_threaded_osdpainter->Clear(m_glOsdThread->m_osdImage,
+                                   QRegion(QRect(QPoint(0,0), osd_size)));
+                LOG(VB_GENERAL, LOG_INFO, LOC + QString("Created OSD QImage."));
+            }
+            else {
+                LOG(VB_GENERAL, LOG_ERR, LOC + QString("Unable to create OSD QImage."));
+                return false;
+            }
+        }
+        if (m_visual)
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC + "Visualiser not supported here");
+            m_visual->Draw(QRect(), NULL, NULL);
+        }
+
+        if (m_glOsdThread->m_lock.tryLock(0)) {
+            QRegion dirty   = QRegion();
+            QRegion visible = osd->Draw(m_threaded_osdpainter,
+                m_glOsdThread->m_osdImage, osd_size, dirty);
+            m_changed = m_changed || !dirty.isEmpty();
+            m_glOsdThread->m_osdImage->SetChanged(m_changed);
+            m_glOsdThread->m_bounds = GetTotalOSDBounds();
+            m_glOsdThread->m_lock.unlock();
+            if (m_changed) {
+                m_glOsdThread->m_wait.wakeAll();
+                m_changed = false;
+            }
+        }
         return true;
     }
 #endif
@@ -845,8 +1066,7 @@ QStringList VideoOutputOMX::GetVisualiserList(void)
 
 bool VideoOutputOMX::CreateBuffers(
     const QSize &video_dim_buf,     // video buffer size
-    const QSize &video_dim_disp,    // video display size
-    WId winid )
+    const QSize &video_dim_disp)    // video display size
 {
     OMXComponent &cmpnt = m_imagefx.IsValid() ? m_imagefx : m_render;
 
@@ -1072,8 +1292,27 @@ bool VideoOutputOMX::SetVideoRect(const QRect &d_rect, const QRect &vid_rect)
 #endif // USING_BROADCOM
 
 #ifdef OSD_EGL
-    if (m_context)
-        m_context->SetViewPort(window.GetDisplayVisibleRect());
+    if (m_context
+        || ( m_glOsdThread && m_glOsdThread->isValid() ) )
+    {
+        QRect displayRect = window.GetDisplayVisibleRect();
+        QRect mainRect = GetMythMainWindow()->geometry();
+        uint32_t maxwidth = 0, maxheight = 0;
+        graphics_get_display_size(DISPMANX_ID_MAIN_LCD, &maxwidth, &maxheight);
+        QRect glRect(mainRect.x(),        // left
+            maxheight-mainRect.bottom(),  // top
+            0,0);
+        glRect.setRight(mainRect.right());
+        glRect.setBottom(glRect.top()+mainRect.height());
+        if (m_context)
+        {
+            m_context->SetViewPort(displayRect);
+            m_context->SetViewPort(glRect,true);
+        }
+        if (m_glOsdThread && m_glOsdThread->isValid()) {
+            m_glOsdThread->setRects(displayRect,glRect);
+        }
+    }
 #endif
 
     m_disp_rect = disp_rect;
@@ -1160,7 +1399,10 @@ OMX_ERRORTYPE VideoOutputOMX::UseBuffersCB()
 OMX_ERRORTYPE VideoOutputOMX::FreeBuffersCB()
 {
     OMXComponent &cmpnt = m_imagefx.IsValid() ? m_imagefx : m_render;
-    assert(vbuffers.Size() >= cmpnt.PortDef().nBufferCountActual);
+#ifndef NDEBUG
+    const OMX_PARAM_PORTDEFINITIONTYPE &def = cmpnt.PortDef();
+    assert(vbuffers.Size() >= def.nBufferCountActual);
+#endif
 
     for (uint i = 0; i < vbuffers.Size(); ++i)
     {
@@ -1187,12 +1429,14 @@ OMX_ERRORTYPE VideoOutputOMX::FreeBuffersCB()
 
 #ifdef OSD_EGL
 MythRenderEGL::MythRenderEGL() :
-    MythRenderBase(MythRenderFormat()),
+    MythRenderOpenGL2ES(MythRenderFormat()),
     m_display(EGL_NO_DISPLAY),
     m_context(EGL_NO_CONTEXT),
     m_window(0),
     m_surface(EGL_NO_SURFACE)
 {
+    // Disable flush to get performance improvement
+    m_flushEnabled = false;
     // get an EGL display connection
     m_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (m_display == EGL_NO_DISPLAY)
@@ -1320,6 +1564,7 @@ MythRenderEGL::~MythRenderEGL()
     assert(b == EGL_TRUE);
 #endif
     m_display = EGL_NO_DISPLAY;
+    DeleteOpenGLResources();
 }
 
 EGLNativeWindowType MythRenderEGL::createNativeWindow()

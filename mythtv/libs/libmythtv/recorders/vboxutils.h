@@ -8,17 +8,18 @@
 // MythTV headers
 #include "vboxchannelfetcher.h"
 
-#define VBOX_MIN_API_VERSION  "VB.2.48"
+#define VBOX_MIN_API_VERSION  "VB.2.50"
 
 class VBox
 {
   public:
-    VBox(const QString &url);
+    explicit VBox(const QString &url);
     ~VBox(void);
 
     static QStringList probeDevices(void);
     static QString getIPFromVideoDevice(const QString &dev);
 
+    bool isConnected(void);
     bool checkConnection(void);
     bool checkVersion(QString &version);
     QDomDocument *getBoardInfo(void);

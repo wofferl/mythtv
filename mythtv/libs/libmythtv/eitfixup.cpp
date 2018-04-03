@@ -138,8 +138,8 @@ EITFixUp::EITFixUp()
       m_PRO7CrewOne("^(.*):\\s+(.*)$"),
       m_PRO7Cast("\n\nDarsteller:\n(.*)$"),
       m_PRO7CastOne("^([^\\(]*)\\((.*)\\)$"),
-      m_DisneyChannelSubtitle(",([^,]+)\\s{0,1}(\\d{4})$"),
       m_ATVSubtitle(",{0,1}\\sFolge\\s(\\d{1,3})$"),
+      m_DisneyChannelSubtitle(",([^,]+)\\s{0,1}(\\d{4})$"),
       m_RTLEpisodeNo1("^(Folge\\s\\d{1,4})\\.*\\s*"),
       m_RTLEpisodeNo2("^(\\d{1,2}\\/[IVX]+)\\.*\\s*"),
       m_fiRerun("\\ ?Uusinta[a-zA-Z\\ ]*\\.?"),
@@ -240,7 +240,7 @@ EITFixUp::EITFixUp()
       m_grCategSciFi("(?:\\W)?(επιστ(.|ημονικ[ηή]ς)\\s?φαντασ[ιί]ας)(?:\\W)?",Qt::CaseInsensitive),
       m_grCategHealth("(?:\\W)?(υγε[ιί]α|υγειιν|ιατρικ|διατροφ)(?:\\W)?",Qt::CaseInsensitive),
       m_grCategSpecial("(?:\\W)?(αφι[εέ]ρωμα)(?:\\W)?",Qt::CaseInsensitive),
-      m_unitymediaImdbrating("\\s*IMDb Rating: (\\d\\.\\d) /10$")
+      m_unitymediaImdbrating("\\s*IMDb Rating: (\\d\\.\\d)\\s?/10$")
 {
 }
 
@@ -392,8 +392,8 @@ void EITFixUp::Fix(DBEventEIT &event) const
  *  If there is no authority on the ID, add the default one.
  *  If there is no default, return an empty id.
  *
+ *  \param chanid The channel whose data should be updated.
  *  \param id The ID string to add the authority to.
- *  \param query Object to use for SQL queries.
  *
  *  \return ID with the authority added or empty string if not a valid CRID.
  */
@@ -423,7 +423,6 @@ QString EITFixUp::AddDVBEITAuthority(uint chanid, const QString &id)
 /**
  *  \brief Use this for the Canadian BellExpressVu to standardize DVB-S guide.
  *  \todo  deal with events that don't have eventype at the begining?
- *  \TODO
  */
 void EITFixUp::FixBellExpressVu(DBEventEIT &event) const
 {
@@ -811,7 +810,7 @@ void EITFixUp::SetUKSubtitle(DBEventEIT &event) const
             strEnd = "!";
         }
         else
-            strEnd = QString::null;
+            strEnd.clear();
     }
 
     if (!strListEnd.empty())
@@ -1130,7 +1129,7 @@ void EITFixUp::FixUK(DBEventEIT &event) const
     if (event.description.isEmpty() && !event.subtitle.isEmpty())
     {
         event.description=event.subtitle;
-        event.subtitle=QString::null;
+        event.subtitle.clear();
     }
 }
 
@@ -1422,7 +1421,7 @@ void EITFixUp::FixAUDescription(DBEventEIT &event) const
     if (event.description.isEmpty() && !event.subtitle.isEmpty())//due to ten's copyright info, this won't be caught before
     {
         event.description = event.subtitle;
-        event.subtitle = QString::null;
+        event.subtitle.clear();
     }
     if (event.description.startsWith(event.title+" - "))
         event.description.remove(0,event.title.length()+3);
@@ -1457,7 +1456,7 @@ void EITFixUp::FixAUNine(DBEventEIT &event) const
     }
     if (event.subtitle == "Movie")
     {
-        event.subtitle = QString::null;
+        event.subtitle.clear();
         event.categoryType = ProgramInfo::kCategoryMovie;
     }
     if (event.description.startsWith(event.title))
@@ -2702,8 +2701,10 @@ void EITFixUp::FixGreekEIT(DBEventEIT &event) const
         bool ok;
         uint y = tmpRegEx.cap(1).toUInt(&ok);
         if (ok)
+        {
             event.originalairdate = QDate(y, 1, 1);
             event.description.replace(tmpRegEx, "");
+        }
     }
     // Remove white spaces
     event.description = event.description.trimmed();

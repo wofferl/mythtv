@@ -33,16 +33,14 @@
 #else
 #  include <sys/param.h>
 #  include <sys/mount.h>
-#  if CONFIG_CYGWIN
+#  ifdef __CYGWIN__
 #    include <sys/statfs.h>
-#  else // if !CONFIG_CYGWIN
+#  else // if !__CYGWIN__
 #    include <sys/sysctl.h>
-#  endif // !CONFIG_CYGWIN
+#  endif // !__CYGWIN__
 #endif
 
-#include "mythtv/mythconfig.h"
-
-#if CONFIG_DARWIN
+#ifdef __APPLE__
 #define MSG_NOSIGNAL 0  // Apple also has SO_NOSIGPIPE?
 #endif
 
@@ -185,7 +183,8 @@ void connectToDatabase(void)
         exit(mysql_errno(&g_dbConn));
     }
 
-    g_dbConn.reconnect = 1;
+    my_bool reconnect = 1;
+    mysql_options(&g_dbConn, MYSQL_OPT_RECONNECT, &reconnect);
 
     if (!mysql_real_connect(&g_dbConn, g_server.c_str(), g_user.c_str(),
          g_password.c_str(), 0, 0, 0, 0))
@@ -237,7 +236,7 @@ MONITOR::MONITOR(void) :
 {
 }
 
-void MONITOR::initMonitor(bool debug, string mmapPath, int shmKey)
+void MONITOR::initMonitor(bool debug, const string &mmapPath, int shmKey)
 {
     int shared_data_size;
     int frame_size = width * height * bytes_per_pixel;
@@ -658,7 +657,7 @@ bool ZMServer::send(const string &s, const unsigned char *buffer, int dataLen) c
     return true;
 }
 
-void ZMServer::sendError(string error)
+void ZMServer::sendError(const string &error)
 {
     string outStr("");
     ADD_STR(outStr, string("ERROR - ") + error);
@@ -1032,9 +1031,11 @@ string ZMServer::runCommand(string command)
     return outStr;
 }
 
-void ZMServer::getMonitorStatus(string id, string type, string device, string host, string channel,
-                                string function, string &zmcStatus, string &zmaStatus,
-                                string enabled)
+void ZMServer::getMonitorStatus(const string &id, const string &type,
+                                const string &device, const string &host,
+                                const string &channel, const string &function,
+                                string &zmcStatus, string &zmaStatus,
+                                const string &enabled)
 {
     zmaStatus = "";
     zmcStatus = "";
@@ -1160,6 +1161,8 @@ void ZMServer::handleGetAnalysisFrame(vector<string> tokens)
     string eventID(tokens[2]);
     int frameNo = atoi(tokens[3].c_str());
     string eventTime(tokens[4]);
+    int frameID;
+    int frameCount = 0;
 
     if (m_debug)
         cout << "Getting analysis frame " << frameNo << " for event " << eventID
@@ -1183,17 +1186,13 @@ void ZMServer::handleGetAnalysisFrame(vector<string> tokens)
     }
 
     res = mysql_store_result(&g_dbConn);
-    int frameCount = mysql_num_rows(res);
-    int frameID;
-    string fileFormat = m_analysisFileFormat;
+    frameCount = mysql_num_rows(res);
 
-    // if we didn't find any analysis frames look for a normal frame instead
-    if (frameCount == 0 || m_useAnalysisImages == false)
+    // if we didn't find any alarm frames get the list of normal frames
+    if (frameCount == 0)
     {
         mysql_free_result(res);
 
-        frameNo = 0;
-        fileFormat = m_eventFileFormat;
         sql  = "SELECT FrameId FROM Frames ";
         sql += "WHERE EventID = " + eventID + " ";
         sql += "ORDER BY FrameID";
@@ -1207,6 +1206,14 @@ void ZMServer::handleGetAnalysisFrame(vector<string> tokens)
 
         res = mysql_store_result(&g_dbConn);
         frameCount = mysql_num_rows(res);
+    }
+
+    // if frameCount is 0 then we can't go any further
+    if (frameCount == 0)
+    {
+        cout << "handleGetAnalyseFrame: Failed to find any frames" << endl;
+        sendError(ERROR_NO_FRAMES);
+        return;
     }
 
     // if the required frame mumber is 0 or out of bounds then use the middle frame
@@ -1233,35 +1240,55 @@ void ZMServer::handleGetAnalysisFrame(vector<string> tokens)
     mysql_free_result(res);
 
     string outStr("");
+    string filepath("");
+    string frameFile("");
+
+    if (m_useDeepStorage)
+        filepath = g_webPath + "/events/" + monitorID + "/" + eventTime + "/";
+    else
+        filepath = g_webPath + "/events/" + monitorID + "/" + eventID + "/";
 
     ADD_STR(outStr, "OK")
 
-    // try to find the analyse frame file
-    string filepath("");
-    if (m_useDeepStorage)
-    {
-        filepath = g_webPath + "/events/" + monitorID + "/" + eventTime + "/";
-        sprintf(str, fileFormat.c_str(), frameID);
-        filepath += str;
-    }
-    else
-    {
-        filepath = g_webPath + "/events/" + monitorID + "/" + eventID + "/";
-        sprintf(str, fileFormat.c_str(), frameID);
-        filepath += str;
-    }
-
     FILE *fd;
     int fileSize = 0;
-    if ((fd = fopen(filepath.c_str(), "r" )))
+
+    // try to find an analysis frame for the frameID
+    if (m_useAnalysisImages)
+    {
+        sprintf(str, m_analysisFileFormat.c_str(), frameID);
+        frameFile = filepath + str;
+
+        if ((fd = fopen(frameFile.c_str(), "r" )))
+        {
+            fileSize = fread(buffer, 1, sizeof(buffer), fd);
+            fclose(fd);
+
+            if (m_debug)
+                cout << "Frame size: " <<  fileSize << endl;
+
+            // get the file size
+            ADD_INT(outStr, fileSize)
+
+            // send the data
+            send(outStr, buffer, fileSize);
+            return;
+        }
+    }
+
+    // try to find a normal frame for the frameID these should always be available
+    sprintf(str, m_eventFileFormat.c_str(), frameID);
+    frameFile = filepath + str;
+
+    if ((fd = fopen(frameFile.c_str(), "r" )))
     {
         fileSize = fread(buffer, 1, sizeof(buffer), fd);
         fclose(fd);
     }
     else
     {
-        cout << "Can't open " << filepath << ": " << strerror(errno) << endl;
-        sendError(ERROR_FILE_OPEN + string(" - ") + filepath + " : " + strerror(errno));
+        cout << "Can't open " << frameFile << ": " << strerror(errno) << endl;
+        sendError(ERROR_FILE_OPEN + string(" - ") + frameFile + " : " + strerror(errno));
         return;
     }
 
@@ -1962,7 +1989,7 @@ void ZMServer::zmcControl(MONITOR *monitor, const string &mode)
     else
     {
         sql += "WHERE Id = '" + monitor->getIdStr() + "'";
-        zmcArgs = "-m " + monitor->mon_id;
+        zmcArgs = "-m " + monitor->getIdStr();
     }
 
     if (mysql_query(&g_dbConn, sql.c_str()))

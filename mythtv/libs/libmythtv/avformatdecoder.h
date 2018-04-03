@@ -216,6 +216,7 @@ class AvFormatDecoder : public DecoderBase
     friend int close_avf(URLContext *h);
 
     void DecodeDTVCC(const uint8_t *buf, uint buf_size, bool scte);
+    void DecodeCCx08(const uint8_t *buf, uint buf_size, bool scte);
     void InitByteContext(bool forceseek = false);
     void InitVideoCodec(AVStream *stream, AVCodecContext *enc,
                         bool selectedStream = false);
@@ -243,7 +244,7 @@ class AvFormatDecoder : public DecoderBase
     void SeekReset(long long, uint skipFrames, bool doFlush, bool discardFrames);
 
     inline bool DecoderWillDownmix(const AVCodecContext *ctx);
-    bool DoPassThrough(const AVCodecContext *ctx, bool withProfile=true);
+    bool DoPassThrough(const AVCodecParameters *ctx, bool withProfile=true);
     bool SetupAudioStream(void);
     void SetupAudioStreamSubIndexes(int streamIndex);
     void RemoveAudioStreams();
@@ -261,8 +262,9 @@ class AvFormatDecoder : public DecoderBase
     virtual void UpdateFramesPlayed(void);
     virtual bool DoRewindSeek(long long desiredFrame);
     virtual void DoFastForwardSeek(long long desiredFrame, bool &needflush);
-    virtual void StreamChangeCheck(void) { }
+    virtual void StreamChangeCheck(void);
     virtual void PostProcessTracks(void) { }
+    virtual bool IsValidStream(int /*streamid*/) {return true;}
 
     int DecodeAudio(AVCodecContext *ctx, uint8_t *buffer, int &data_size,
                     AVPacket *pkt);
@@ -328,6 +330,7 @@ class AvFormatDecoder : public DecoderBase
     MythCodecID video_codec_id;
 
     int maxkeyframedist;
+    int averror_count;
 
     // Caption/Subtitle/Teletext decoders
     uint             ignore_scte;
@@ -369,6 +372,9 @@ class AvFormatDecoder : public DecoderBase
     float m_fps;
     bool  codec_is_mpeg;
     bool  m_processFrames;
+    bool  m_streams_changed;
+    // Value in milliseconds, from setting AudioReadAhead
+    int m_audioReadAhead;
 };
 
 #endif

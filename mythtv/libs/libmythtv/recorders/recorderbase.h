@@ -68,7 +68,7 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     friend class Transcode; // for access to SetIntOption(), SetStrOption()
 
   public:
-    RecorderBase(TVRec *rec);
+    explicit RecorderBase(TVRec *rec);
     virtual ~RecorderBase();
 
     /// \brief Sets the video frame rate.
@@ -239,8 +239,7 @@ class MTV_PUBLIC RecorderBase : public QRunnable
         TVRec                  *tvrec,
         ChannelBase            *channel,
         const RecordingProfile &profile,
-        const GeneralDBOptions &genOpt,
-        const DVBDBOptions     &dvbOpt);
+        const GeneralDBOptions &genOpt);
 
   protected:
     /** \brief Convenience function used to set integer options from a profile.
@@ -333,6 +332,7 @@ class MTV_PUBLIC RecorderBase : public QRunnable
     QMutex         nextRingBufferLock;
     RingBuffer    *nextRingBuffer;
     RecordingInfo *nextRecording;
+    MythTimer      ringBufferCheckTimer;
 
     // Seektable  support
     MarkTypes      positionMapType;

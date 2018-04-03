@@ -359,10 +359,10 @@ static void handle_transport_desc(vector<uint> &muxes,
             cd.SymbolRateHz(),    -1,
             -1,                   'a',
             -1,
-            cd.FECInnerString(),  QString::null,
-            -1,                   QString::null,
-            QString::null,        QString::null,
-            QString::null,        QString::null);
+            cd.FECInnerString(),  QString(),
+            -1,                   QString(),
+            QString(),            QString(),
+            QString(),            QString());
 
         if (mux)
             muxes.push_back(mux);
@@ -380,10 +380,10 @@ uint ChannelUtil::CreateMultiplex(int  sourceid,      QString sistandard,
         -1,                 -1,
         -1,                 -1,
         -1,
-        QString::null,      QString::null,
-        -1,                 QString::null,
-        QString::null,      QString::null,
-        QString::null,      QString::null);
+        QString(),          QString(),
+        -1,                 QString(),
+        QString(),          QString(),
+        QString(),          QString());
 }
 
 uint ChannelUtil::CreateMultiplex(
@@ -754,7 +754,7 @@ bool ChannelUtil::GetTuningParams(uint      mplexid,
 QString ChannelUtil::GetChannelStringField(int chan_id, const QString &field)
 {
     if (chan_id < 0)
-        return QString::null;
+        return QString();
 
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare(QString("SELECT %1 FROM channel "
@@ -763,11 +763,11 @@ QString ChannelUtil::GetChannelStringField(int chan_id, const QString &field)
     if (!query.exec())
     {
         MythDB::DBError("Selecting channel/dtv_multiplex 1", query);
-        return QString::null;
+        return QString();
     }
 
     if (!query.next())
-        return QString::null;
+        return QString();
 
     return query.value(0).toString();
 }
@@ -881,9 +881,9 @@ bool ChannelUtil::GetCachedPids(uint chanid,
 
 /** \brief Saves PIDs for PSIP tables to database.
  *
- *  \param chanid     Channel ID to fetch cached pids for.
- *  \param pid_cache  List of PIDs with their TableID types to be saved.
- *  \param delete_all If true delete both permanent and transient pids first.
+ *  \param chanid      Channel ID to fetch cached pids for.
+ *  \param _pid_cache  List of PIDs with their TableID types to be saved.
+ *  \param delete_all  If true delete both permanent and transient pids first.
  */
 bool ChannelUtil::SaveCachedPids(uint chanid,
                                  const pid_cache_t &_pid_cache,
@@ -947,7 +947,7 @@ QString ChannelUtil::GetChannelValueStr(const QString &channel_field,
                                         uint           sourceid,
                                         const QString &channum)
 {
-    QString retval = QString::null;
+    QString retval;
 
     MSqlQuery query(MSqlQuery::InitCon());
 
@@ -1076,7 +1076,7 @@ static QStringList get_valid_recorder_list(const QString &channum)
     return reclist;
 }
 
-/** \fn TV::GetValidRecorderList(uint, const QString&)
+/**
  *  \brief Returns list of the recorders that have chanid or channum
  *         in their sources.
  *  \param chanid   Channel ID of channel we are querying recorders for.
@@ -1225,7 +1225,7 @@ QString ChannelUtil::GetDefaultAuthority(uint chanid)
     }
 
     QMap<uint,QString>::iterator it = channel_default_authority_map.find(chanid);
-    QString ret = QString::null;
+    QString ret;
     if (it != channel_default_authority_map.end())
     {
         ret = *it;
@@ -1855,8 +1855,12 @@ bool ChannelUtil::GetChannelData(
     uint    &mplexid,
     bool    &commfree)
 {
-    tvformat      = modulation = freqtable = QString::null;
-    freqid        = dtv_si_std = QString::null;
+    chanid        = 0;
+    tvformat.clear();
+    modulation.clear();
+    freqtable.clear();;
+    freqid.clear();
+    dtv_si_std.clear();
     finetune      = 0;
     frequency     = 0;
     mpeg_prog_num = -1;
@@ -1864,11 +1868,13 @@ bool ChannelUtil::GetChannelData(
     dvb_networkid = dvb_transportid = 0;
     commfree      = false;
 
+    int found = 0;
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare(
         "SELECT finetune, freqid, tvformat, freqtable, "
         "       commmethod, mplexid, "
-        "       atsc_major_chan, atsc_minor_chan, serviceid, chanid "
+        "       atsc_major_chan, atsc_minor_chan, serviceid, "
+        "       chanid,  visible "
         "FROM channel, videosource "
         "WHERE videosource.sourceid = channel.sourceid AND "
         "      channum              = :CHANNUM         AND "
@@ -1881,7 +1887,39 @@ bool ChannelUtil::GetChannelData(
         MythDB::DBError("GetChannelData", query);
         return false;
     }
-    else if (!query.next())
+
+    while (query.next())
+    {
+        found += query.value(10).toInt();
+        if (found)
+        {
+            finetune      = query.value(0).toInt();
+            freqid        = query.value(1).toString();
+            tvformat      = query.value(2).toString();
+            freqtable     = query.value(3).toString();
+            commfree      = (query.value(4).toInt() == -2);
+            mplexid       = query.value(5).toUInt();
+            atsc_major    = query.value(6).toUInt();
+            atsc_minor    = query.value(7).toUInt();
+            mpeg_prog_num = (query.value(8).isNull()) ? -1
+                            : query.value(8).toInt();
+            chanid        = query.value(9).toUInt();
+        }
+    }
+
+    if (!found)
+    {
+        LOG(VB_GENERAL, LOG_INFO,
+            QString("No visible channels for %1").arg(channum));
+    }
+
+    if (found > 1)
+    {
+        LOG(VB_GENERAL, LOG_WARNING,
+            QString("Found multiple visible channels for %1").arg(channum));
+    }
+
+    if (!chanid)
     {
         LOG(VB_GENERAL, LOG_ERR,
             QString("GetChannelData() failed because it could not\n"
@@ -1889,17 +1927,6 @@ bool ChannelUtil::GetChannelData(
                 .arg(channum).arg(sourceid));
         return false;
     }
-
-    finetune      = query.value(0).toInt();
-    freqid        = query.value(1).toString();
-    tvformat      = query.value(2).toString();
-    freqtable     = query.value(3).toString();
-    commfree      = (query.value(4).toInt() == -2);
-    mplexid       = query.value(5).toUInt();
-    atsc_major    = query.value(6).toUInt();
-    atsc_minor    = query.value(7).toUInt();
-    mpeg_prog_num = (query.value(8).isNull()) ? -1 : query.value(8).toInt();
-    chanid        = query.value(9).toUInt();
 
     if (!mplexid || (mplexid == 32767)) /* 32767 deals with old lineups */
         return true;

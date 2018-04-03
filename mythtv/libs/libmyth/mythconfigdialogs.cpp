@@ -5,7 +5,6 @@
 
 #include "mythwizard.h"
 #include "mythuihelper.h"
-#include "mythterminal.h"
 
 // C++ headers
 #include <vector>
@@ -141,10 +140,8 @@ MythDialog *ConfigurationWizard::dialogWidget(MythMainWindow *parent,
                      wizard, SLOT(  setHelpText(   QString)));
 
     QWidget *widget = parent;
-#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
     if (qApp->platformName().contains("egl"))
         widget = wizard;
-#endif
     QWidget *child = NULL;
     ChildList::iterator it = cfgChildren.begin();
     for (; it != cfgChildren.end(); ++it)
@@ -160,16 +157,4 @@ MythDialog *ConfigurationWizard::dialogWidget(MythMainWindow *parent,
         wizard->setFinishEnabled(child, true);
 
     return wizard;
-}
-
-TerminalWizard::TerminalWizard(QString program, QStringList args) :
-    terminal(new MythTerminal(program, args))
-{
-    addChild(terminal);
-}
-
-DialogCode TerminalWizard::exec(bool saveOnExec, bool doLoad)
-{
-    terminal->Start();
-    return ConfigurationWizard::exec(saveOnExec, doLoad);
 }

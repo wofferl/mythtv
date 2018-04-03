@@ -151,13 +151,6 @@ void ThemeChooser::Load(void)
 {
     SetBusyPopupMessage(tr("Loading Installed Themes"));
 
-    QString MythVersion = MYTH_SOURCE_PATH;
-
-    // Treat devel branches as master
-    if (!MythVersion.isEmpty() && !MythVersion.startsWith("fixes/"))
-        // FIXME: For now, treat git master the same as svn trunk
-        MythVersion = "trunk";
-
     QStringList themesSeen;
     QDir themes(m_userThemeDir);
     themes.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
@@ -191,6 +184,19 @@ void ThemeChooser::Load(void)
         }
     }
 
+    // MYTH_SOURCE_VERSION - examples v29-pre-574-g92517f5, v29-Pre, v29.1-21-ge26a33c
+    QString MythVersion(MYTH_SOURCE_VERSION);
+    QRegExp trunkver("v[0-9]+-pre.*",Qt::CaseInsensitive);
+    QRegExp validver("v[0-9]+.*",Qt::CaseInsensitive);
+
+    if (!validver.exactMatch(MythVersion))
+    {
+        LOG(VB_GENERAL, LOG_ERR, QString("Invalid MythTV version %1, will use themes from trunk").arg(MythVersion));
+        MythVersion = "trunk";
+    }
+    if (trunkver.exactMatch(MythVersion))
+        MythVersion = "trunk";
+
     if (MythVersion == "trunk")
     {
         LoadVersion(MythVersion, themesSeen, true);
@@ -199,13 +205,16 @@ void ThemeChooser::Load(void)
     else
     {
 
-        MythVersion = MYTH_BINARY_VERSION; // Example: 0.25.20101017-1
+        MythVersion = MYTH_BINARY_VERSION; // Example: 29.20161017-1
+        // Remove the date part and the rest, eg 29.20161017-1 -> 29
         MythVersion.replace(QRegExp("\\.[0-9]{8,}.*"), "");
         LOG(VB_GUI, LOG_INFO, QString("Loading themes for %1").arg(MythVersion));
         LoadVersion(MythVersion, themesSeen, true);
 
         // If a version of the theme for this tag exists, use it...
-        QRegExp subexp("v[0-9]+.[0-9]+.([0-9]+)-*");
+        // MYTH_SOURCE_VERSION - examples v29-pre-574-g92517f5, v29-Pre, v29.1-21-ge26a33c
+        QRegExp subexp("v[0-9]+\\.([0-9]+)-*");
+        // This captures the subversion, i.e. the number after a dot
         int pos = subexp.indexIn(MYTH_SOURCE_VERSION);
         if (pos > -1)
         {
@@ -222,7 +231,7 @@ void ThemeChooser::Load(void)
 
     ResetBusyPopup();
 
-    qSort(m_infoList.begin(), m_infoList.end(), sortThemeNames);
+    std::sort(m_infoList.begin(), m_infoList.end(), sortThemeNames);
 }
 
 void ThemeChooser::LoadVersion(const QString &version,
@@ -233,8 +242,9 @@ void ThemeChooser::LoadVersion(const QString &version,
     QString themeSite = QString("%1/%2")
         .arg(gCoreContext->GetSetting("ThemeRepositoryURL",
              "http://themes.mythtv.org/themes/repository")).arg(version);
-    QDir remoteThemesDir(GetMythUI()->GetThemeCacheDir()
-                             .append("/themechooser/").append(version));
+    QString destdir = GetCacheDir().append("/themechooser/");
+    QString versiondir = QString("%1/%2").arg(destdir).arg(version);
+    QDir remoteThemesDir(versiondir);
 
     int downloadFailures =
         gCoreContext->GetNumSetting("ThemeInfoDownloadFailures", 0);
@@ -276,9 +286,6 @@ void ThemeChooser::LoadVersion(const QString &version,
 
         QString url = themeSite;
         url.append("/themes.zip");
-        QString destdir = GetMythUI()->GetThemeCacheDir();
-        destdir.append("/themechooser");
-        QString versiondir = QString("%1/%2").arg(destdir).arg(version);
         if (!removeThemeDir(versiondir))
             ShowOkPopup(tr("Unable to remove '%1'").arg(versiondir));
         QDir dir;

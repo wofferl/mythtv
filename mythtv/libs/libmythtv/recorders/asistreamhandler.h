@@ -44,12 +44,13 @@ typedef enum ASIRXMode
 class ASIStreamHandler : public StreamHandler
 {
   public:
-    static ASIStreamHandler *Get(const QString &devicename);
-    static void Return(ASIStreamHandler * & ref);
+    static ASIStreamHandler *Get(const QString &devicename,
+                                 int recorder_id = -1);
+    static void Return(ASIStreamHandler * & ref, int recorder_id = -1);
 
     virtual void AddListener(MPEGStreamData *data,
-                             bool allow_section_reader = false,
-                             bool needs_drb            = false,
+                             bool /*allow_section_reader*/ = false,
+                             bool /*needs_drb*/            = false,
                              QString output_file       = QString())
     {
         StreamHandler::AddListener(data, false, true, output_file);
@@ -59,7 +60,7 @@ class ASIStreamHandler : public StreamHandler
     void SetRXMode(ASIRXMode m);
 
   private:
-    ASIStreamHandler(const QString &);
+    explicit ASIStreamHandler(const QString &);
 
     bool Open(void);
     void Close(void);

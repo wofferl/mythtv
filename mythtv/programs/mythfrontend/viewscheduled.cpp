@@ -43,7 +43,7 @@ void *ViewScheduled::RunViewScheduled(void *player, bool showTV)
     return NULL;
 }
 
-ViewScheduled::ViewScheduled(MythScreenStack *parent, TV* player, bool showTV)
+ViewScheduled::ViewScheduled(MythScreenStack *parent, TV* player, bool /*showTV*/)
              : ScheduleCommon(parent, "ViewScheduled"),
                m_conflictBool(false),
                m_conflictDate(QDate()),
@@ -80,8 +80,6 @@ bool ViewScheduled::Create()
 {
     if (!LoadWindowFromXML("schedule-ui.xml", "viewscheduled", this))
         return false;
-
-    //if (m_player && m_player->IsRunning() && showTV)
 
     m_groupList     = dynamic_cast<MythUIButtonList *> (GetChild("groups"));
     m_schedulesList = dynamic_cast<MythUIButtonList *> (GetChild("schedules"));
@@ -296,7 +294,7 @@ void ViewScheduled::LoadList(bool useExistingData)
              recstatus == RecStatus::Tuning ||
              recstatus == RecStatus::Failing) &&
             (m_showAll ||
-             (recstatus >= RecStatus::Failing &&
+             (recstatus >= RecStatus::Pending &&
               recstatus <= RecStatus::WillRecord) ||
              recstatus == RecStatus::DontRecord ||
              (recstatus == RecStatus::TooManyRecordings &&
@@ -436,7 +434,8 @@ void ViewScheduled::FillList()
                  recstatus == RecStatus::Aborted   ||
                  recstatus == RecStatus::Missed)
             state = "error";
-        else if (recstatus == RecStatus::WillRecord)
+        else if (recstatus == RecStatus::WillRecord ||
+                 recstatus == RecStatus::Pending)
         {
             if (m_curinput == 0 || pginfo->GetInputID() == m_curinput)
             {

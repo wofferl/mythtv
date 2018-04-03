@@ -1,4 +1,3 @@
-#include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <cerrno>
@@ -29,6 +28,7 @@ using namespace std;
 #include "mythsystemlegacy.h"
 #include "tv.h"
 #include "proglist.h"
+#include "prevreclist.h"
 #include "progfind.h"
 #include "scheduleeditor.h"
 #include "manualschedule.h"
@@ -69,7 +69,6 @@ using namespace std;
 #include "langsettings.h"
 #include "mythtranslation.h"
 #include "commandlineparser.h"
-#include "channelgroupsettings.h"
 #include "tvremoteutil.h"
 
 #include "myththemedmenu.h"
@@ -84,6 +83,7 @@ using namespace std;
 #include "mythversion.h"
 #include "taskqueue.h"
 #include "cleanupguard.h"
+#include "standardsettings.h"
 
 // Video
 #include "cleanup.h"
@@ -171,8 +171,17 @@ namespace
 
             if (passwordValid)
             {
-                VideoGeneralSettings settings;
-                settings.exec();
+                MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+                StandardSettingDialog *ssd =
+                    new StandardSettingDialog(mainStack, "videogeneralsettings",
+                                              new VideoGeneralSettings());
+
+                if (ssd->Create())
+                {
+                    mainStack->AddScreen(ssd);
+                }
+                else
+                    delete ssd;
             }
             else
             {
@@ -254,6 +263,8 @@ namespace
 
     void cleanup()
     {
+        qApp->processEvents();
+        DestroyMythMainWindow();
 #ifdef USING_AIRPLAY
         MythRAOPDevice::Cleanup();
         MythAirplayServer::Cleanup();
@@ -277,8 +288,6 @@ namespace
             delete pmanager;
             pmanager = NULL;
         }
-
-        DestroyMythMainWindow();
 
         delete gContext;
         gContext = NULL;
@@ -536,6 +545,16 @@ static void startPlayback(void)
 }
 
 static void startPrevious(void)
+{
+    MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+    PrevRecordedList *pl = new PrevRecordedList(mainStack);
+    if (pl->Create())
+        mainStack->AddScreen(pl);
+    else
+        delete pl;
+}
+
+static void startPreviousOld(void)
 {
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
     ProgLister *pl = new ProgLister(mainStack);
@@ -882,17 +901,21 @@ static void TVMenuCallback(void *data, QString &selection)
         startSearchTime();
     else if (sel == "tv_previous")
         startPrevious();
+    else if (sel == "tv_previous_old")
+        startPreviousOld();
     else if (sel == "settings appearance")
     {
-        AppearanceSettings *settings = new AppearanceSettings();
-        DialogCode res = settings->exec();
-        delete settings;
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "videogeneralsettings",
+                                      new AppearanceSettings());
 
-        if (kDialogCodeRejected != res)
+        if (ssd->Create())
         {
-            qApp->processEvents();
-            GetMythMainWindow()->JumpTo("Reload Theme");
+            mainStack->AddScreen(ssd);
         }
+        else
+            delete ssd;
     }
     else if (sel == "settings themechooser")
     {
@@ -934,50 +957,129 @@ static void TVMenuCallback(void *data, QString &selection)
     }
     else if (sel == "settings playgroup")
     {
-        PlayGroupEditor editor;
-        editor.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "playbackgroupsetting",
+                                      new PlayGroupEditor());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings general")
     {
-        GeneralSettings settings;
-        settings.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "videogeneralsettings",
+                                      new GeneralSettings());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings audiogeneral")
     {
-        AudioGeneralSettings audiosettings;
-        audiosettings.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new AudioConfigScreen(mainStack, "audiogeneralsettings",
+                                  new AudioConfigSettings());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings maingeneral")
     {
-        MainGeneralSettings mainsettings;
-        mainsettings.exec();
-        QStringList strlist( QString("REFRESH_BACKEND") );
-        gCoreContext->SendReceiveStringList(strlist);
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "maingeneralsettings",
+                                      new MainGeneralSettings());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings playback")
     {
-        PlaybackSettings settings;
-        settings.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new PlaybackSettingsDialog(mainStack);
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings osd")
     {
-        OSDSettings settings;
-        settings.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "osdsettings",
+                                      new OSDSettings());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings epg")
     {
-        EPGSettings settings;
-        settings.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "epgsettings",
+                                      new EPGSettings());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings channelgroups")
     {
-        ChannelGroupEditor editor;
-        editor.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "channelgroupssettings",
+                                      new ChannelGroupsSetting());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings generalrecpriorities")
     {
-        GeneralRecPrioritiesSettings settings;
-        settings.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack,
+                                      "generalrecprioritiessettings",
+                                      new GeneralRecPrioritiesSettings());
+
+        if (ssd->Create())
+        {
+            mainStack->AddScreen(ssd);
+        }
+        else
+            delete ssd;
     }
     else if (sel == "settings channelrecpriorities")
     {
@@ -1140,6 +1242,8 @@ static void WriteDefaults()
     VideoGeneralSettings vgs;
     vgs.Load();
     vgs.Save();
+    //TODo Playback group not loaded?
+    //TODo Channel group not loaded?
 }
 
 static int internal_play_media(const QString &mrl, const QString &plot,
@@ -1154,7 +1258,8 @@ static int internal_play_media(const QString &mrl, const QString &plot,
     if ((!checkFile.exists() && !mrl.startsWith("dvd:")
          && !mrl.startsWith("bd:")
          && !mrl.startsWith("myth:")
-         && !mrl.startsWith("http://")))
+         && !mrl.startsWith("http://")
+         && !mrl.startsWith("https://")))
     {
         QString errorText = qApp->translate("(MythFrontendMain)",
             "Failed to open \n '%1' in %2 \n"
@@ -1473,6 +1578,8 @@ static void InitKeys(void)
          "Scroll image down"), "8");
      REG_KEY("Images", "RECENTER", QT_TRANSLATE_NOOP("MythControls",
          "Recenter image"), "5");
+     REG_KEY("Images", "COVER", QT_TRANSLATE_NOOP("MythControls",
+         "Set or clear cover image"), "C");
 }
 
 static void ReloadKeys(void)
@@ -1529,21 +1636,18 @@ static int internal_media_init()
 {
     REG_MEDIAPLAYER("Internal", QT_TRANSLATE_NOOP("MythControls",
         "MythTV's native media player."), internal_play_media);
-
-    REG_MEDIA_HANDLER(
-        QT_TRANSLATE_NOOP("MythControls", "MythDVD DVD Media Handler"),
-        QT_TRANSLATE_NOOP("MythControls", "MythDVD media"),
-        "", handleDVDMedia, MEDIATYPE_DVD, QString::null);
-
     REG_MEDIA_HANDLER(QT_TRANSLATE_NOOP("MythControls",
-        "MythImage Media Handler 1/2"), "", "", handleGalleryMedia,
-        MEDIATYPE_DATA | MEDIATYPE_MIXED, QString::null);
+        "MythDVD DVD Media Handler"), "", handleDVDMedia,
+        MEDIATYPE_DVD, QString());
+    REG_MEDIA_HANDLER(QT_TRANSLATE_NOOP("MythControls",
+        "MythImage Media Handler 1/2"), "", handleGalleryMedia,
+        MEDIATYPE_DATA | MEDIATYPE_MIXED, QString());
 
     QStringList extensions(ImageAdapterBase::SupportedImages()
                            + ImageAdapterBase::SupportedVideos());
 
     REG_MEDIA_HANDLER(QT_TRANSLATE_NOOP("MythControls",
-        "MythImage Media Handler 2/2"), "", "", handleGalleryMedia,
+        "MythImage Media Handler 2/2"), "", handleGalleryMedia,
         MEDIATYPE_MGALLERY | MEDIATYPE_MVIDEO, extensions.join(","));
     return 0;
 }
@@ -1624,7 +1728,8 @@ static bool WasAutomaticStart(void)
                     ProgramList::const_iterator it = progList.begin();
                     for (; it != progList.end(); ++it)
                     {
-                        if (((*it)->GetRecordingStatus() == RecStatus::WillRecord) &&
+                        if (((*it)->GetRecordingStatus() == RecStatus::WillRecord ||
+                             (*it)->GetRecordingStatus() == RecStatus::Pending) &&
                             ((*it)->GetHostname() == hostname) &&
                             (nextRecordingStart.isNull() ||
                              nextRecordingStart > (*it)->GetRecordingStartTime()))
@@ -1675,16 +1780,8 @@ int main(int argc, char **argv)
     bool bPromptForBackend    = false;
     bool bBypassAutoDiscovery = false;
 
-#ifdef Q_OS_ANDROID
-    // extra for 0 termination
-    char *newargv[argc+4+1];
-    memset(newargv, 0, sizeof(newargv));
-    memcpy(newargv, argv, sizeof(char*) * argc);
-    //newargv[argc++] = "-v";
-    //newargv[argc++] = "general,gui,playback";
-    //newargv[argc++] = "--loglevel";
-    //newargv[argc++] = "debug";
-    argv = &newargv[0];
+#if CONFIG_OMX_RPI
+    setenv("QT_XCB_GL_INTEGRATION","none",0);
 #endif
 
     MythFrontendCommandLineParser cmdline;
@@ -1721,7 +1818,7 @@ int main(int argc, char **argv)
 #ifdef Q_OS_ANDROID
     //QApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 #endif
-#if QT_VERSION >= 0x050300
+#if QT_VERSION >= QT_VERSION_CHECK(5,3,0)
     QApplication::setSetuidAllowed(true);
 #endif
     new QApplication(argc, argv);
@@ -1773,14 +1870,16 @@ int main(int argc, char **argv)
         MythUIHelper::ParseGeometryOverride(cmdline.toString("geometry"));
     }
 
-    gContext = new MythContext(MYTH_BINARY_VERSION);
+    gContext = new MythContext(MYTH_BINARY_VERSION, true);
+    gCoreContext->SetAsFrontend(true);
 
+    cmdline.ApplySettingsOverride();
     if (!gContext->Init(true, bPromptForBackend, bBypassAutoDiscovery))
     {
         LOG(VB_GENERAL, LOG_ERR, "Failed to init MythContext, exiting.");
+        gCoreContext->SetExiting(true);
         return GENERIC_EXIT_NO_MYTHCONTEXT;
     }
-    gCoreContext->SetAsFrontend(true);
 
     cmdline.ApplySettingsOverride();
 
@@ -1823,7 +1922,7 @@ int main(int argc, char **argv)
         LOG(VB_GENERAL, LOG_NOTICE, "Appearance settings and language have "
                                     "been reset to defaults. You will need to "
                                     "restart the frontend.");
-
+        gContext-> saveSettingsCache();
         return GENERIC_EXIT_OK;
     }
 
@@ -1881,9 +1980,9 @@ int main(int argc, char **argv)
 
     MythMainWindow *mainWindow = GetMythMainWindow();
 #if CONFIG_DARWIN
-    mainWindow->Init(QT_PAINTER);
+    mainWindow->Init(QT_PAINTER, false);
 #else
-    mainWindow->Init();
+    mainWindow->Init(QString(), false);
 #endif
     mainWindow->setWindowTitle(qApp->translate("(MythFrontendMain)",
                                                "MythTV Frontend",
@@ -2032,6 +2131,10 @@ int main(int argc, char **argv)
 
     int ret = qApp->exec();
 
+    if (ret==0)
+        gContext-> saveSettingsCache();
+
+    DestroyMythUI();
     PreviewGeneratorQueue::TeardownPreviewGeneratorQueue();
 
     delete housekeeping;

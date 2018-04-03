@@ -42,50 +42,6 @@ using namespace omxcontext;
 /*
  * Types
  */
-class AudioDecoderOMX : public OMXComponentCtx
-{
-    // No copying
-    AudioDecoderOMX(const AudioDecoderOMX&);
-    AudioDecoderOMX & operator =(const AudioDecoderOMX&);
-
-  public:
-    explicit AudioDecoderOMX(OMXComponent&);
-    virtual ~AudioDecoderOMX();
-
-    // OMXComponentCtx overrides
-    virtual OMX_ERRORTYPE EmptyBufferDone(OMXComponent&, OMX_BUFFERHEADERTYPE*);
-    virtual OMX_ERRORTYPE FillBufferDone(OMXComponent&, OMX_BUFFERHEADERTYPE*);
-    virtual void ReleaseBuffers(OMXComponent&);
-
-    // Implementation
-    void Stop() { m_audiodecoder.Shutdown(); m_bIsStarted = false; }
-    bool Start(AVCodecID, AudioFormat, int chnls, int sps);
-    bool IsStarted() { return m_bIsStarted; }
-    int DecodeAudio(AVCodecContext*, uint8_t*, int&, const AVPacket*);
-
-  protected:
-    int GetBufferedFrame(uint8_t *buffer);
-    int ProcessPacket(const AVPacket *pkt);
-
-  private:
-    OMX_ERRORTYPE FillOutputBuffers();
-
-    // OMXComponentCB actions
-    typedef OMX_ERRORTYPE ComponentCB();
-    ComponentCB FreeBuffersCB, AllocBuffersCB;
-    ComponentCB AllocInputBuffers, AllocOutputBuffers;
-
-  private:
-    OMXComponent &m_audiorender;
-    OMXComponent m_audiodecoder;
-    bool m_bIsStarted;
-
-    QSemaphore m_ibufs_sema;    // EmptyBufferDone signal
-    QSemaphore m_obufs_sema;    // FillBufferDone signal
-    QMutex mutable m_lock;      // Protects data following
-    QList<OMX_BUFFERHEADERTYPE*> m_ibufs;
-    QList<OMX_BUFFERHEADERTYPE*> m_obufs;
-};
 
 
 /*
@@ -94,7 +50,6 @@ class AudioDecoderOMX : public OMXComponentCtx
 AudioOutputOMX::AudioOutputOMX(const AudioSettings &settings) :
     AudioOutputBase(settings),
     m_audiorender(gCoreContext->GetSetting("OMXAudioRender", AUDIO_RENDER), *this),
-    m_audiodecoder(0),
     m_lock(QMutex::Recursive)
 {
     if (m_audiorender.GetState() != OMX_StateLoaded)
@@ -125,9 +80,6 @@ AudioOutputOMX::AudioOutputOMX(const AudioSettings &settings) :
         if (0) m_audiorender.ShowFormats(port, LOG_DEBUG, VB_AUDIO);
     }
 
-    // Create the OMX audio decoder
-    m_audiodecoder = new AudioDecoderOMX(m_audiorender);
-
     InitSettings(settings);
     if (settings.init)
         Reconfigure(settings);
@@ -140,7 +92,6 @@ AudioOutputOMX::~AudioOutputOMX()
 
     // Must shutdown the OMX components now before our state becomes invalid.
     // When the component's dtor is called our state has already been destroyed.
-    delete m_audiodecoder, m_audiodecoder = 0;
     m_audiorender.Shutdown();
 }
 
@@ -154,16 +105,22 @@ static inline void SetupChannels(T &t)
       default:
       case 8:
         t.eChannelMapping[7] = OMX_AUDIO_ChannelRS;
+        [[clang::fallthrough]];
       case 7:
         t.eChannelMapping[6] = OMX_AUDIO_ChannelLS;
+        [[clang::fallthrough]];
       case 6:
         t.eChannelMapping[5] = OMX_AUDIO_ChannelRR;
+        [[clang::fallthrough]];
       case 5:
         t.eChannelMapping[4] = OMX_AUDIO_ChannelLR;
+        [[clang::fallthrough]];
       case 4:
         t.eChannelMapping[3] = OMX_AUDIO_ChannelLFE;
+        [[clang::fallthrough]];
       case 3:
         t.eChannelMapping[2] = OMX_AUDIO_ChannelCF;
+        [[clang::fallthrough]];
       case 2:
         t.eChannelMapping[1] = OMX_AUDIO_ChannelRF;
         t.eChannelMapping[0] = OMX_AUDIO_ChannelLF;
@@ -239,7 +196,6 @@ bool AudioOutputOMX::OpenDevice(void)
     }
 
     m_audiorender.Shutdown();
-    if (m_audiodecoder) m_audiodecoder->Stop();
 
     OMX_ERRORTYPE e;
     unsigned nBitPerSample = 0;
@@ -416,9 +372,8 @@ bool AudioOutputOMX::OpenDevice(void)
     // NB the OpenMAX spec requires PCM buffer size >= 5mS data
     m_audiorender.GetPortDef();
     OMX_PARAM_PORTDEFINITIONTYPE &def = m_audiorender.PortDef();
-#define OUT_CHANNELS(n) (((n) > 4) ? 8U: ((n) > 2) ? 4U: unsigned(n))
     def.nBufferSize = std::max(
-        OMX_U32((1024 * nBitPerSample * OUT_CHANNELS(channels)) / 8),
+        OMX_U32((1024 * nBitPerSample * channels) / 8),
         def.nBufferSize);
     def.nBufferCountActual = std::max(OMX_U32(10), def.nBufferCountActual);
     //def.bBuffersContiguous = OMX_FALSE;
@@ -460,10 +415,6 @@ bool AudioOutputOMX::OpenDevice(void)
     }
 #endif
 
-    // Setup the audio decoder
-    if (!passthru && m_audiodecoder)
-        m_audiodecoder->Start(AVCodecID(codec), output_format, channels, samplerate);
-
     // Goto OMX_StateIdle & allocate buffers
     OMXComponentCB<AudioOutputOMX> cb(this, &AudioOutputOMX::AllocBuffersCB);
     e = m_audiorender.SetState(OMX_StateIdle, 500, &cb);
@@ -493,6 +444,55 @@ void AudioOutputOMX::CloseDevice(void)
     m_audiorender.Shutdown();
 }
 
+// HDMI uses a different channel order from WAV and others
+// See CEA spec: Table 20, Audio InfoFrame
+
+#define REORD_NUMCHAN 6     // Min Num of channels for reorder to be done
+#define REORD_A 2           // First channel to switch
+#define REORD_B 3           // Second channel to switch
+
+void AudioOutputOMX::reorderChannels(int *aubuf, int size)
+{
+    int t_size = size;
+    int *sample = aubuf;
+    while (t_size >= REORD_NUMCHAN*4)
+    {
+        int savefirst = sample[REORD_A];
+        sample[REORD_A] = sample[REORD_B];
+        sample[REORD_B] = savefirst;
+        sample += channels;
+        t_size -= output_bytes_per_frame;
+    }
+}
+
+void AudioOutputOMX::reorderChannels(short *aubuf, int size)
+{
+    int t_size = size;
+    short *sample = aubuf;
+    while (t_size >= REORD_NUMCHAN*2)
+    {
+        short savefirst = sample[REORD_A];
+        sample[REORD_A] = sample[REORD_B];
+        sample[REORD_B] = savefirst;
+        sample += channels;
+        t_size -= output_bytes_per_frame;
+    }
+}
+
+void AudioOutputOMX::reorderChannels(uchar *aubuf, int size)
+{
+    int t_size = size;
+    uchar *sample = aubuf;
+    while (t_size >= REORD_NUMCHAN)
+    {
+        uchar savefirst = sample[REORD_A];
+        sample[REORD_A] = sample[REORD_B];
+        sample[REORD_B] = savefirst;
+        sample += channels;
+        t_size -= output_bytes_per_frame;
+    }
+}
+
 // virtual
 void AudioOutputOMX::WriteAudio(uchar *aubuf, int size)
 {
@@ -500,6 +500,25 @@ void AudioOutputOMX::WriteAudio(uchar *aubuf, int size)
     {
         LOG(VB_GENERAL, LOG_ERR, LOC + __func__ + " No audio render");
         return;
+    }
+
+    // Reorder channels for CEA format
+    // See CEA spec: Table 20, Audio InfoFrame
+    if (!enc && !reenc && channels >= REORD_NUMCHAN)
+    {
+        int samplesize = output_bytes_per_frame / channels;
+        switch (samplesize)
+        {
+            case 1:
+                reorderChannels(aubuf, size);
+                break;
+            case 2:
+                reorderChannels((short*)aubuf, size);
+                break;
+            case 4:
+                reorderChannels((int*)aubuf, size);
+                break;
+        }
     }
 
     while (size > 0)
@@ -567,7 +586,7 @@ int AudioOutputOMX::GetBufferedOnSoundcard(void) const
     }
     return u.nU32 * output_bytes_per_frame;
 #else
-#    if (QT_VERSION >= QT_VERSION_CHECK(5,0,0)) && (QT_VERSION < QT_VERSION_CHECK(5,3,0))
+#    if (QT_VERSION < QT_VERSION_CHECK(5,3,0))
 #        error No OpenMAX audio with QT5 before 5.3 due to missing operator int() of QAtomicInt, update your QT or remove libomxil-bellagio-dev
 #    endif
 
@@ -576,7 +595,7 @@ int AudioOutputOMX::GetBufferedOnSoundcard(void) const
 }
 
 // virtual
-AudioOutputSettings* AudioOutputOMX::GetOutputSettings(bool passthrough)
+AudioOutputSettings* AudioOutputOMX::GetOutputSettings(bool /*passthrough*/)
 {
     LOG(VB_AUDIO, LOG_INFO, LOC + __func__ + " begin");
 
@@ -587,7 +606,6 @@ AudioOutputSettings* AudioOutputOMX::GetOutputSettings(bool passthrough)
     }
 
     m_audiorender.Shutdown();
-    if (m_audiodecoder) m_audiodecoder->Stop();
 
     OMX_ERRORTYPE e;
     OMX_AUDIO_PARAM_PORTFORMATTYPE fmt;
@@ -699,6 +717,9 @@ AudioOutputSettings* AudioOutputOMX::GetOutputSettings(bool passthrough)
 // virtual // Returns 0-100
 int AudioOutputOMX::GetVolumeChannel(int channel) const
 {
+    if (channel > 0)
+        return -1;
+
     OMX_AUDIO_CONFIG_VOLUMETYPE v;
     OMX_DATA_INIT(v);
     v.nPortIndex = m_audiorender.Base();
@@ -751,28 +772,6 @@ bool AudioOutputOMX::OpenMixer()
 }
 
 // virtual
-int AudioOutputOMX::DecodeAudio(AVCodecContext *ctx, uint8_t *buffer,
-    int &data_size, const AVPacket *pkt)
-{
-    if (m_audiodecoder && m_audiodecoder->IsStarted())
-    {
-        static int s_bShown;
-        if (!s_bShown)
-        {
-            s_bShown = 1;
-            LOG(VB_GENERAL, LOG_CRIT, LOC +
-                "AudioDecoderOMX::DecodeAudio is available but untested.");
-        }
-
-        static int s_enable = gCoreContext->GetNumSetting("OMXAudioDecoderEnable", 0);
-        if (s_enable)
-            return m_audiodecoder->DecodeAudio(ctx, buffer, data_size, pkt);
-    }
-
-    return AudioOutputBase::DecodeAudio(ctx, buffer, data_size, pkt);
-}
-
-// virtual
 OMX_ERRORTYPE AudioOutputOMX::EmptyBufferDone(
     OMXComponent&, OMX_BUFFERHEADERTYPE *hdr)
 {
@@ -795,7 +794,7 @@ OMX_ERRORTYPE AudioOutputOMX::EmptyBufferDone(
 
 // Shutdown OMX_StateIdle -> OMX_StateLoaded callback
 // virtual
-void AudioOutputOMX::ReleaseBuffers(OMXComponent &cmpnt)
+void AudioOutputOMX::ReleaseBuffers(OMXComponent &/*cmpnt*/)
 {
     FreeBuffersCB();
 }
@@ -870,830 +869,4 @@ OMX_ERRORTYPE AudioOutputOMX::AllocBuffersCB()
     return OMX_ErrorNone;
 }
 
-/*******************************************************************************
- * AudioDecoder
- ******************************************************************************/
-#undef LOC
-#define LOC QString("ADOMX:%1 ").arg(m_audiodecoder.Id())
-
-AudioDecoderOMX::AudioDecoderOMX(OMXComponent &render) :
-    m_audiorender(render),
-    m_audiodecoder(gCoreContext->GetSetting("OMXAudioDecode", AUDIO_DECODE), *this),
-    m_bIsStarted(false), m_lock(QMutex::Recursive)
-{
-    if (m_audiodecoder.GetState() != OMX_StateLoaded)
-        return;
-
-    if (OMX_ErrorNone != m_audiodecoder.Init(OMX_IndexParamAudioInit))
-        return;
-
-    if (!m_audiodecoder.IsValid())
-        return;
-
-    // Show default port definitions and audio formats supported
-    for (unsigned port = 0; port < m_audiodecoder.Ports(); ++port)
-    {
-        m_audiodecoder.ShowPortDef(port, LOG_DEBUG, VB_AUDIO);
-        if (0) m_audiodecoder.ShowFormats(port, LOG_DEBUG, VB_AUDIO);
-    }
-}
-
-// virtual
-AudioDecoderOMX::~AudioDecoderOMX()
-{
-    // Must shutdown the OMX components now before our state becomes invalid.
-    // When the component's dtor is called our state has already been destroyed.
-    m_audiodecoder.Shutdown();
-}
-
-static const char *toString(OMX_AUDIO_CHANNELMODETYPE mode)
-{
-    switch (mode)
-    {
-        CASE2STR(OMX_AUDIO_ChannelModeStereo);
-        CASE2STR(OMX_AUDIO_ChannelModeJointStereo);
-        CASE2STR(OMX_AUDIO_ChannelModeDual);
-        CASE2STR(OMX_AUDIO_ChannelModeMono);
-    }
-    static char buf[32];
-    return strcpy(buf, qPrintable(QString("ChannelMode 0x%1").arg(mode,0,16)));
-}
-
-static const char *toString(OMX_AUDIO_MP3STREAMFORMATTYPE type)
-{
-    switch (type)
-    {
-        CASE2STR(OMX_AUDIO_MP3StreamFormatMP1Layer3);
-        CASE2STR(OMX_AUDIO_MP3StreamFormatMP2Layer3);
-        CASE2STR(OMX_AUDIO_MP3StreamFormatMP2_5Layer3);
-    }
-    static char buf[32];
-    return strcpy(buf, qPrintable(QString("StreamFormat 0x%1").arg(type,0,16)));
-}
-
-bool AudioDecoderOMX::Start(AVCodecID codec, AudioFormat format, int chnls, int sps)
-{
-    if (!m_audiodecoder.IsValid())
-        return false;
-
-    Stop();
-
-    if (m_audiodecoder.Ports() < 2)
-    {
-        LOG(VB_AUDIO, LOG_ERR, LOC + __func__ + ": missing output port");
-        return false;
-    }
-
-    OMX_ERRORTYPE e;
-    OMX_AUDIO_PARAM_PORTFORMATTYPE fmt;
-    OMX_DATA_INIT(fmt);
-
-    // Map Ffmpeg audio codec ID to OMX coding
-    switch (codec)
-    {
-      case AV_CODEC_ID_NONE:
-        return false;
-      case AV_CODEC_ID_PCM_S16LE:
-      case AV_CODEC_ID_PCM_S16BE:
-      case AV_CODEC_ID_PCM_U16LE:
-      case AV_CODEC_ID_PCM_U16BE:
-      case AV_CODEC_ID_PCM_S8:
-      case AV_CODEC_ID_PCM_U8:
-      case AV_CODEC_ID_PCM_S32LE:
-      case AV_CODEC_ID_PCM_S32BE:
-      case AV_CODEC_ID_PCM_U32LE:
-      case AV_CODEC_ID_PCM_U32BE:
-      case AV_CODEC_ID_PCM_S24LE:
-      case AV_CODEC_ID_PCM_S24BE:
-      case AV_CODEC_ID_PCM_U24LE:
-      case AV_CODEC_ID_PCM_U24BE:
-        fmt.eEncoding = OMX_AUDIO_CodingPCM;
-        break;
-      case AV_CODEC_ID_MP1:
-      case AV_CODEC_ID_MP2:
-      case AV_CODEC_ID_MP3:
-        fmt.eEncoding = OMX_AUDIO_CodingMP3;
-        break;
-      case AV_CODEC_ID_AAC:
-        fmt.eEncoding = OMX_AUDIO_CodingAAC;
-        break;
-#ifdef OMX_AUDIO_CodingDDP_Supported
-      case AV_CODEC_ID_AC3:
-      case AV_CODEC_ID_EAC3:
-        fmt.eEncoding = OMX_AUDIO_CodingDDP;
-        break;
-#endif
-#ifdef OMX_AUDIO_CodingDTS_Supported
-      case AV_CODEC_ID_DTS:
-        fmt.eEncoding = OMX_AUDIO_CodingDTS;
-        break;
-#endif
-      case AV_CODEC_ID_VORBIS:
-      case AV_CODEC_ID_FLAC:
-        fmt.eEncoding = OMX_AUDIO_CodingVORBIS;
-        break;
-      case AV_CODEC_ID_WMAV1:
-      case AV_CODEC_ID_WMAV2:
-        fmt.eEncoding = OMX_AUDIO_CodingWMA;
-        break;
-#ifdef OMX_AUDIO_CodingATRAC3_Supported
-      case AV_CODEC_ID_ATRAC3:
-      case AV_CODEC_ID_ATRAC3P:
-        fmt.eEncoding = OMX_AUDIO_CodingATRAC3;
-        break;
-#endif
-      default:
-        LOG(VB_AUDIO, LOG_NOTICE, LOC + __func__ +
-            QString(" codec %1 not supported").arg(ff_codec_id_string(codec)));
-        return false;
-    }
-
-    // Set input encoding
-    fmt.nPortIndex = m_audiodecoder.Base();
-    e = m_audiodecoder.SetParameter(OMX_IndexParamAudioPortFormat, &fmt);
-    if (e != OMX_ErrorNone)
-    {
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "SetParameter input AudioPortFormat error %1")
-            .arg(Error2String(e)));
-        return false;
-    }
-
-    // Set input parameters
-    switch (fmt.eEncoding)
-    {
-      case OMX_AUDIO_CodingPCM:
-        OMX_AUDIO_PARAM_PCMMODETYPE pcm;
-        OMX_DATA_INIT(pcm);
-        pcm.nPortIndex = m_audiodecoder.Base();
-
-        e = m_audiodecoder.GetParameter(OMX_IndexParamAudioPcm, &pcm);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "GetParameter input AudioPcm error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-
-        // TODO: Anything other than zeroes here causes bad parameter
-        pcm.nChannels = chnls;
-        pcm.nSamplingRate = sps;
-        if (!::Format2Pcm(pcm, format))
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + __func__ + QString(
-                    " Unsupported PCM input format %1")
-                .arg(AudioOutputSettings::FormatToString(format)));
-            return false;
-        }
-
-        ::SetupChannels(pcm);
-
-        LOG(VB_AUDIO, LOG_INFO, LOC + QString(
-                "Input PCM %1 chnls @ %2 sps %3 %4 bits")
-            .arg(pcm.nChannels).arg(pcm.nSamplingRate).arg(pcm.nBitPerSample)
-            .arg(pcm.eNumData == OMX_NumericalDataSigned ? "signed" : "unsigned") );
-
-        e = m_audiodecoder.SetParameter(OMX_IndexParamAudioPcm, &pcm);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "SetParameter input AudioPcm error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-        break;
-
-      case OMX_AUDIO_CodingMP3:
-        OMX_AUDIO_PARAM_MP3TYPE mp3type;
-        OMX_DATA_INIT(mp3type);
-        mp3type.nPortIndex = m_audiodecoder.Base();
-
-        e = m_audiodecoder.GetParameter(OMX_IndexParamAudioMp3, &mp3type);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "GetParameter input AudioMp3 error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-
-        mp3type.nChannels = chnls;
-        mp3type.nBitRate = 0;
-        mp3type.nSampleRate = sps;
-        mp3type.nAudioBandWidth = 0;
-        mp3type.eChannelMode = (chnls == 1) ? OMX_AUDIO_ChannelModeMono :
-                                OMX_AUDIO_ChannelModeStereo;
-        mp3type.eFormat = (codec == AV_CODEC_ID_MP1) ?
-                            OMX_AUDIO_MP3StreamFormatMP1Layer3 :
-                            OMX_AUDIO_MP3StreamFormatMP2Layer3;
-                            // or OMX_AUDIO_MP3StreamFormatMP2_5Layer3
-
-        LOG(VB_AUDIO, LOG_INFO, LOC + QString("Input %1 %2 chnls @ %3 sps %4")
-            .arg(toString(mp3type.eFormat)).arg(mp3type.nChannels)
-            .arg(mp3type.nSampleRate).arg(toString(mp3type.eChannelMode)) );
-
-        e = m_audiodecoder.SetParameter(OMX_IndexParamAudioMp3, &mp3type);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "SetParameter output AudioMp3 error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-        break;
-
-#ifdef OMX_AUDIO_CodingDDP_Supported
-      case OMX_AUDIO_CodingDDP:
-        OMX_AUDIO_PARAM_DDPTYPE ddp;
-        OMX_DATA_INIT(ddp);
-        ddp.nPortIndex = m_audiodecoder.Base();
-        e = m_audiodecoder.GetParameter(OMX_IndexParamAudioDdp, &ddp);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "GetParameter AudioDdp error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-
-        ddp.nChannels = chnls;
-        ddp.nBitRate = 0;
-        ddp.nSampleRate = sps;
-        ddp.eBitStreamId = (AV_CODEC_ID_AC3 == codec) ?
-                           OMX_AUDIO_DDPBitStreamIdAC3 :
-                           OMX_AUDIO_DDPBitStreamIdEAC3;
-        ddp.eBitStreamMode = OMX_AUDIO_DDPBitStreamModeCM;
-        ddp.eDolbySurroundMode = OMX_AUDIO_DDPDolbySurroundModeNotIndicated;
-        ::SetupChannels(ddp);
-
-        LOG(VB_AUDIO, LOG_INFO, LOC + QString("Input %1 %2 chnls @ %3 sps")
-            .arg(toString(ddp.eBitStreamId)).arg(ddp.nChannels)
-            .arg(ddp.nSampleRate) );
-
-        e = m_audiodecoder.SetParameter(OMX_IndexParamAudioDdp, &ddp);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "SetParameter AudioDdp error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-        break;
-#endif //def OMX_AUDIO_CodingDDP_Supported
-
-      case OMX_AUDIO_CodingVORBIS:
-        OMX_AUDIO_PARAM_VORBISTYPE vorbis;
-        OMX_DATA_INIT(vorbis);
-        vorbis.nPortIndex = m_audiodecoder.Base();
-        e = m_audiodecoder.GetParameter(OMX_IndexParamAudioVorbis, &vorbis);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "GetParameter AudioVorbis error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-
-        vorbis.nChannels = chnls;
-        vorbis.nBitRate = 0;
-        vorbis.nMinBitRate = 0;
-        vorbis.nMaxBitRate = 0;
-        vorbis.nSampleRate = sps;
-        vorbis.nAudioBandWidth = 0;
-        vorbis.nQuality = 0;
-        vorbis.bManaged = OMX_FALSE;
-        vorbis.bDownmix = OMX_FALSE;
-
-        LOG(VB_AUDIO, LOG_INFO, LOC + QString("Input Vorbis %1 chnls @ %2 sps")
-            .arg(vorbis.nChannels).arg(vorbis.nSampleRate) );
-
-        e = m_audiodecoder.SetParameter(OMX_IndexParamAudioVorbis, &vorbis);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "SetParameter AudioVorbis error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-        break;
-
-#ifdef OMX_AUDIO_CodingDTS_Supported
-      case OMX_AUDIO_CodingDTS:
-        OMX_AUDIO_PARAM_DTSTYPE dts;
-        OMX_DATA_INIT(dts);
-        dts.nPortIndex = m_audiodecoder.Base();
-        e = m_audiorender.GetParameter(OMX_IndexParamAudioDts, &dts);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "GetParameter AudioDts error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-
-        dts.nChannels = chnls;
-        dts.nBitRate = 0;
-        dts.nSampleRate = sps;
-        // TODO
-        //dts.nDtsType;           // OMX_U32 DTS type 1, 2, or 3
-        //dts.nFormat;            // OMX_U32 DTS stream is either big/little endian and 16/14 bit packing
-        //dts.nDtsFrameSizeBytes; // OMX_U32 DTS frame size in bytes
-        ::SetupChannels(dts);
-
-        LOG(VB_AUDIO, LOG_INFO, LOC + QString("Input DTS %1 chnls @ %2 sps")
-            .arg(dts.nChannels).arg(dts.nSampleRate) );
-
-        e = m_audiorender.SetParameter(OMX_IndexParamAudioDts, &dts);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "SetParameter AudioDts error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-        break;
-#endif //def OMX_AUDIO_CodingDTS_Supported
-
-      case OMX_AUDIO_CodingAAC: // TODO
-      case OMX_AUDIO_CodingWMA: // TODO
-      //case OMX_AUDIO_CodingATRAC3: // TODO
-      default:
-        LOG(VB_GENERAL, LOG_WARNING, LOC + QString("Unhandled codec %1")
-            .arg(Coding2String(fmt.eEncoding)));
-        return false;
-    }
-
-    // Setup input buffer size & count
-    m_audiodecoder.GetPortDef();
-    OMX_PARAM_PORTDEFINITIONTYPE &def = m_audiodecoder.PortDef();
-    //def.nBufferSize = 1024;
-    def.nBufferCountActual = std::max(OMX_U32(2), def.nBufferCountMin);
-    assert(def.eDomain == OMX_PortDomainAudio);
-    assert(def.format.audio.eEncoding == fmt.eEncoding);
-    e = m_audiodecoder.SetParameter(OMX_IndexParamPortDefinition, &def);
-    if (e != OMX_ErrorNone)
-    {
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "SetParameter PortDefinition error %1")
-            .arg(Error2String(e)));
-        return false;
-    }
-
-#if 0
-    // Setup pass through
-    OMX_CONFIG_BOOLEANTYPE boolType;
-    OMX_DATA_INIT(boolType);
-    boolType.bEnabled = OMX_FALSE;
-    e = m_audiodecoder.SetParameter(OMX_IndexParamBrcmDecoderPassThrough, &boolType);
-    if (e != OMX_ErrorNone)
-    {
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "SetParameter BrcmDecoderPassThrough error %1")
-            .arg(Error2String(e)));
-    }
-#endif
-
-    // Setup output encoding
-    m_audiodecoder.GetPortDef(1);
-    OMX_PARAM_PORTDEFINITIONTYPE &odef = m_audiodecoder.PortDef(1);
-    assert(odef.eDomain == OMX_PortDomainAudio);
-    if (odef.format.audio.eEncoding != OMX_AUDIO_CodingPCM)
-    {
-        // Set output encoding
-        OMX_AUDIO_PARAM_PORTFORMATTYPE ofmt;
-        OMX_DATA_INIT(ofmt);
-        ofmt.nPortIndex = odef.nPortIndex;
-        ofmt.eEncoding = OMX_AUDIO_CodingPCM;
-        e = m_audiodecoder.SetParameter(OMX_IndexParamAudioPortFormat, &ofmt);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "SetParameter output AudioPortFormat error %1")
-                .arg(Error2String(e)));
-            return false;
-        }
-    }
-
-    // Setup output PCM format
-    OMX_AUDIO_PARAM_PCMMODETYPE pcm;
-    OMX_DATA_INIT(pcm);
-    pcm.nPortIndex = odef.nPortIndex;
-    pcm.nChannels = chnls;
-    pcm.nSamplingRate = sps;
-    if (!::Format2Pcm(pcm, format))
-    {
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString("Unsupported PCM output format %1")
-            .arg(AudioOutputSettings::FormatToString(format)));
-        return false;
-    }
-    ::SetupChannels(pcm);
-
-    LOG(VB_AUDIO, LOG_INFO, LOC + QString("Output PCM %1 chnls @ %2 sps %3 %4 bits")
-        .arg(pcm.nChannels).arg(pcm.nSamplingRate).arg(pcm.nBitPerSample)
-        .arg(pcm.eNumData == OMX_NumericalDataSigned ? "signed" : "unsigned") );
-
-    e = m_audiodecoder.SetParameter(OMX_IndexParamAudioPcm, &pcm);
-    if (e != OMX_ErrorNone)
-    {
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "SetParameter output AudioPcm error %1")
-            .arg(Error2String(e)));
-        return false;
-    }
-
-    m_audiodecoder.GetPortDef(1);
-    assert(odef.format.audio.eEncoding == OMX_AUDIO_CodingPCM);
-
-    // Setup output buffer size & count
-    // NB the OpenMAX spec requires PCM buffer size >= 5mS data
-    //odef.nBufferSize = 16384;
-    odef.nBufferCountActual = std::max(OMX_U32(4), odef.nBufferCountMin);
-    e = m_audiodecoder.SetParameter(OMX_IndexParamPortDefinition, &odef);
-    if (e != OMX_ErrorNone)
-    {
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "SetParameter output PortDefinition error %1")
-            .arg(Error2String(e)));
-        return false;
-    }
-
-#if 0
-    // Goto OMX_StateIdle & allocate buffers
-    OMXComponentCB<AudioDecoderOMX> cb(this, &AudioDecoderOMX::AllocBuffersCB);
-    e = m_audiodecoder.SetState(OMX_StateIdle, 500, &cb);
-    switch (e)
-    {
-      case OMX_ErrorNone:
-        break;
-      case OMX_ErrorUnsupportedSetting:
-        // lvr: only OMX_AUDIO_CodingPCM is currently (17-Dec-2015) supported
-        LOG(VB_AUDIO, LOG_WARNING, LOC + QString("%1 is not supported")
-            .arg(Coding2String(fmt.eEncoding)));
-        return false;
-      default:
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString("SetState idle error %1")
-            .arg(Error2String(e)));
-        return false;
-    }
-#else
-    // A disabled port is not populated with buffers on a transition to IDLE
-    if (m_audiodecoder.PortDisable(0, 500) != OMX_ErrorNone)
-        return false;
-    if (m_audiodecoder.PortDisable(1, 500) != OMX_ErrorNone)
-        return false;
-
-    // Goto OMX_StateIdle
-    e = m_audiodecoder.SetState(OMX_StateIdle, 500);
-    if (e != OMX_ErrorNone)
-        return false;
-
-    // Enable input port
-    OMXComponentCB<AudioDecoderOMX> cb(this, &AudioDecoderOMX::AllocInputBuffers);
-    e = m_audiodecoder.PortEnable(0, 500, &cb);
-    switch (e)
-    {
-      case OMX_ErrorNone:
-        break;
-      case OMX_ErrorUnsupportedSetting:
-        // lvr: only OMX_AUDIO_CodingPCM is currently (17-Dec-2015) supported
-        LOG(VB_AUDIO, LOG_WARNING, LOC + QString("%1 is not supported")
-            .arg(Coding2String(fmt.eEncoding)));
-        return false;
-      default:
-        LOG(VB_AUDIO, LOG_ERR, LOC + QString("SetState idle error %1")
-            .arg(Error2String(e)));
-        return false;
-    }
-
-    OMXComponentCB<AudioDecoderOMX> cb2(this, &AudioDecoderOMX::AllocOutputBuffers);
-    e = m_audiodecoder.PortEnable(1, 500, &cb2);
-    if (e != OMX_ErrorNone)
-        return false;
-#endif
-
-    // Goto OMX_StateExecuting
-    e = m_audiodecoder.SetState(OMX_StateExecuting, 500);
-    if (e != OMX_ErrorNone)
-        return false;
-
-    e = FillOutputBuffers();
-    if (e != OMX_ErrorNone)
-        return false;
-
-    m_bIsStarted = true;
-    return true;
-}
-
-/**
- * Decode an audio packet, and compact it if data is planar
- * Return negative error code if an error occurred during decoding
- * or the number of bytes consumed from the input AVPacket
- * data_size contains the size of decoded data copied into buffer
- * data decoded will be S16 samples if class instance can't handle HD audio
- * or S16 and above otherwise. No U8 PCM format can be returned
- */
-int AudioDecoderOMX::DecodeAudio(AVCodecContext *ctx, uint8_t *buffer,
-    int &data_size, const AVPacket *pkt)
-{
-    if (!m_audiodecoder.IsValid())
-        return -1;
-
-    // Check for decoded data
-    int ret = GetBufferedFrame(buffer);
-    if (ret < 0)
-        return ret;
-    if (ret > 0)
-        data_size = ret;
-
-    // Submit a packet for decoding
-    return (pkt && pkt->size) ? ProcessPacket(pkt) : 0;
-}
-
-int AudioDecoderOMX::GetBufferedFrame(uint8_t *buffer)
-{
-    if (!buffer)
-        return 0;
-
-    if (!m_obufs_sema.tryAcquire())
-        return 0;
-
-    m_lock.lock();
-    assert(!m_obufs.isEmpty());
-    OMX_BUFFERHEADERTYPE *hdr = m_obufs.takeFirst();
-    m_lock.unlock();
-
-    int ret = hdr->nFilledLen;
-    memcpy(buffer, &hdr->pBuffer[hdr->nOffset], hdr->nFilledLen);
-
-    hdr->nFlags = 0;
-    hdr->nFilledLen = 0;
-    OMX_ERRORTYPE e = OMX_FillThisBuffer(m_audiodecoder.Handle(), hdr);
-    if (e != OMX_ErrorNone)
-        LOG(VB_PLAYBACK, LOG_ERR, LOC + QString(
-            "OMX_FillThisBuffer reQ error %1").arg(Error2String(e)) );
-
-    return ret;
-}
-
-int AudioDecoderOMX::ProcessPacket(const AVPacket *pkt)
-{
-    uint8_t *buf = pkt->data;
-    int size = pkt->size;
-    int ret = pkt->size;
-
-    while (size > 0)
-    {
-        if (!m_ibufs_sema.tryAcquire(1, 5))
-        {
-            LOG(VB_AUDIO, LOG_DEBUG, LOC + __func__ + " - no input buffers");
-            ret = 0;
-            break;
-        }
-        m_lock.lock();
-        assert(!m_ibufs.isEmpty());
-        OMX_BUFFERHEADERTYPE *hdr = m_ibufs.takeFirst();
-        m_lock.unlock();
-
-        int free = int(hdr->nAllocLen) - int(hdr->nFilledLen + hdr->nOffset);
-        int cnt = (free > size) ? size : free;
-        memcpy(&hdr->pBuffer[hdr->nOffset + hdr->nFilledLen], buf, cnt);
-        hdr->nFilledLen += cnt;
-        buf += cnt;
-        size -= cnt;
-        free -= cnt;
-
-        hdr->nFlags = 0;
-        OMX_ERRORTYPE e = OMX_EmptyThisBuffer(m_audiodecoder.Handle(), hdr);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_PLAYBACK, LOG_ERR, LOC + QString(
-                "OMX_EmptyThisBuffer error %1").arg(Error2String(e)) );
-            m_lock.lock();
-            m_ibufs.append(hdr);
-            m_lock.unlock();
-            m_ibufs_sema.release();
-            ret = -1;
-            break;
-        }
-    }
-
-    return ret;
-}
-
-// OMX_StateIdle callback
-OMX_ERRORTYPE AudioDecoderOMX::AllocBuffersCB()
-{
-    OMX_ERRORTYPE e = AllocInputBuffers();
-    return (e == OMX_ErrorNone) ? AllocOutputBuffers() : e;
-}
-
-// Allocate decoder input buffers
-OMX_ERRORTYPE AudioDecoderOMX::AllocInputBuffers()
-{
-    assert(m_audiodecoder.IsValid());
-    assert(m_ibufs_sema.available() == 0);
-    assert(m_ibufs.isEmpty());
-
-    const OMX_PARAM_PORTDEFINITIONTYPE &def = m_audiodecoder.PortDef();
-    OMX_U32 uBufs = def.nBufferCountActual;
-    LOG(VB_AUDIO, LOG_DEBUG, LOC + __func__ + QString(" %1 x %2 bytes")
-            .arg(uBufs).arg(def.nBufferSize));
-    while (uBufs--)
-    {
-        OMX_BUFFERHEADERTYPE *hdr;
-        OMX_ERRORTYPE e = OMX_AllocateBuffer(m_audiodecoder.Handle(), &hdr,
-            def.nPortIndex, 0, def.nBufferSize);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "OMX_AllocateBuffer error %1").arg(Error2String(e)) );
-            return e;
-        }
-        if (hdr->nSize != sizeof(OMX_BUFFERHEADERTYPE))
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + "OMX_AllocateBuffer header mismatch");
-            OMX_FreeBuffer(m_audiodecoder.Handle(), def.nPortIndex, hdr);
-            return OMX_ErrorVersionMismatch;
-        }
-        if (hdr->nVersion.nVersion != OMX_VERSION)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + "OMX_AllocateBuffer version mismatch");
-            OMX_FreeBuffer(m_audiodecoder.Handle(), def.nPortIndex, hdr);
-            return OMX_ErrorVersionMismatch;
-        }
-        hdr->nFilledLen = 0;
-        hdr->nOffset = 0;
-        m_lock.lock();
-        m_ibufs.append(hdr);
-        m_lock.unlock();
-        m_ibufs_sema.release();
-    }
-    return OMX_ErrorNone;
-}
-
-// Allocate decoder output buffers
-OMX_ERRORTYPE AudioDecoderOMX::AllocOutputBuffers()
-{
-    assert(m_audiodecoder.IsValid());
-    assert(m_obufs_sema.available() == 0);
-    assert(m_obufs.isEmpty());
-
-    const OMX_PARAM_PORTDEFINITIONTYPE &def = m_audiodecoder.PortDef(1);
-    OMX_U32 uBufs = def.nBufferCountActual;
-    LOG(VB_AUDIO, LOG_DEBUG, LOC + __func__ + QString(" %1 x %2 bytes")
-            .arg(uBufs).arg(def.nBufferSize));
-    while (uBufs--)
-    {
-        OMX_BUFFERHEADERTYPE *hdr;
-        OMX_ERRORTYPE e = OMX_AllocateBuffer(m_audiodecoder.Handle(), &hdr,
-            def.nPortIndex, 0, def.nBufferSize);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "OMX_AllocateBuffer error %1").arg(Error2String(e)) );
-            return e;
-        }
-        if (hdr->nSize != sizeof(OMX_BUFFERHEADERTYPE))
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + "OMX_AllocateBuffer header mismatch");
-            OMX_FreeBuffer(m_audiodecoder.Handle(), def.nPortIndex, hdr);
-            return OMX_ErrorVersionMismatch;
-        }
-        if (hdr->nVersion.nVersion != OMX_VERSION)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + "OMX_AllocateBuffer version mismatch");
-            OMX_FreeBuffer(m_audiodecoder.Handle(), def.nPortIndex, hdr);
-            return OMX_ErrorVersionMismatch;
-        }
-        hdr->nFilledLen = 0;
-        hdr->nOffset = 0;
-        m_lock.lock();
-        m_obufs.append(hdr);
-        m_lock.unlock();
-        m_obufs_sema.release();
-    }
-    return OMX_ErrorNone;
-}
-
-// Shutdown OMX_StateIdle -> OMX_StateLoaded callback
-// virtual
-void AudioDecoderOMX::ReleaseBuffers(OMXComponent &cmpnt)
-{
-    FreeBuffersCB();
-}
-
-// Free all OMX buffers
-// OMX_CommandPortDisable callback
-OMX_ERRORTYPE AudioDecoderOMX::FreeBuffersCB()
-{
-    assert(m_audiodecoder.IsValid());
-
-    // Free all input buffers
-    while (m_ibufs_sema.tryAcquire())
-    {
-        m_lock.lock();
-        assert(!m_ibufs.isEmpty());
-        OMX_BUFFERHEADERTYPE *hdr = m_ibufs.takeFirst();
-        m_lock.unlock();
-
-        assert(hdr->nSize == sizeof(OMX_BUFFERHEADERTYPE));
-        assert(hdr->nVersion.nVersion == OMX_VERSION);
-
-        OMX_ERRORTYPE e;
-        e = OMX_FreeBuffer(m_audiodecoder.Handle(), m_audiodecoder.Base(), hdr);
-        if (e != OMX_ErrorNone)
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "OMX_FreeBuffer 0x%1 error %2")
-                .arg(quintptr(hdr),0,16).arg(Error2String(e)));
-    }
-
-    // Free all output buffers
-    while (m_obufs_sema.tryAcquire())
-    {
-        m_lock.lock();
-        assert(!m_obufs.isEmpty());
-        OMX_BUFFERHEADERTYPE *hdr = m_obufs.takeFirst();
-        m_lock.unlock();
-
-        assert(hdr->nSize == sizeof(OMX_BUFFERHEADERTYPE));
-        assert(hdr->nVersion.nVersion == OMX_VERSION);
-
-        OMX_ERRORTYPE e;
-        e = OMX_FreeBuffer(m_audiodecoder.Handle(), m_audiodecoder.Base() + 1, hdr);
-        if (e != OMX_ErrorNone)
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                    "OMX_FreeBuffer 0x%1 error %2")
-                .arg(quintptr(hdr),0,16).arg(Error2String(e)));
-    }
-
-    return OMX_ErrorNone;
-}
-
-// virtual
-OMX_ERRORTYPE AudioDecoderOMX::EmptyBufferDone(
-    OMXComponent&, OMX_BUFFERHEADERTYPE *hdr)
-{
-    assert(hdr->nSize == sizeof(OMX_BUFFERHEADERTYPE));
-    assert(hdr->nVersion.nVersion == OMX_VERSION);
-    hdr->nFilledLen = 0;
-    hdr->nFlags = 0;
-    if (m_lock.tryLock(1000))
-    {
-        m_ibufs.append(hdr);
-        m_lock.unlock();
-        m_ibufs_sema.release();
-    }
-    else
-        LOG(VB_GENERAL, LOG_CRIT, LOC + "EmptyBufferDone deadlock");
-    return OMX_ErrorNone;
-}
-
-// virtual
-OMX_ERRORTYPE AudioDecoderOMX::FillBufferDone(
-    OMXComponent&, OMX_BUFFERHEADERTYPE *hdr)
-{
-    assert(hdr->nSize == sizeof(OMX_BUFFERHEADERTYPE));
-    assert(hdr->nVersion.nVersion == OMX_VERSION);
-    if (m_lock.tryLock(1000))
-    {
-        m_obufs.append(hdr);
-        m_lock.unlock();
-        m_obufs_sema.release();
-    }
-    else
-        LOG(VB_GENERAL, LOG_CRIT, LOC + "FillBufferDone deadlock");
-    return OMX_ErrorNone;
-}
-
-// Start filling the output buffers
-OMX_ERRORTYPE AudioDecoderOMX::FillOutputBuffers()
-{
-    while (m_obufs_sema.tryAcquire())
-    {
-        m_lock.lock();
-        assert(!m_obufs.isEmpty());
-        OMX_BUFFERHEADERTYPE *hdr = m_obufs.takeFirst();
-        m_lock.unlock();
-
-        assert(hdr->nSize == sizeof(OMX_BUFFERHEADERTYPE));
-        assert(hdr->nVersion.nVersion == OMX_VERSION);
-
-        hdr->nFlags = 0;
-        hdr->nFilledLen = 0;
-        OMX_ERRORTYPE e = OMX_FillThisBuffer(m_audiodecoder.Handle(), hdr);
-        if (e != OMX_ErrorNone)
-        {
-            LOG(VB_AUDIO, LOG_ERR, LOC + QString(
-                "OMX_FillThisBuffer error %1").arg(Error2String(e)) );
-            m_lock.lock();
-            m_obufs.append(hdr);
-            m_lock.unlock();
-            m_obufs_sema.release();
-            return e;
-        }
-    }
-
-    return OMX_ErrorNone;
-}
 // EOF

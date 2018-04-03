@@ -39,6 +39,11 @@ V4L2util::V4L2util(const QString& dev_name, const QString& vbi_dev_name)
     Open(dev_name, vbi_dev_name);
 }
 
+V4L2util::~V4L2util(void)
+{
+    Close();
+}
+
 bool V4L2util::Open(const QString& dev_name, const QString& vbi_dev_name)
 {
     if (m_fd >= 0 && dev_name == m_device_name)
@@ -55,17 +60,18 @@ bool V4L2util::Open(const QString& dev_name, const QString& vbi_dev_name)
     }
     m_device_name = dev_name;
 
-    struct v4l2_query_ext_ctrl qc = {
-        V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND
-    };
-
+    struct v4l2_query_ext_ctrl qc;
+    memset(&qc, 0, sizeof(v4l2_query_ext_ctrl));
+    qc.id = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
     m_have_query_ext_ctrl = (v4l2_ioctl(m_fd, VIDIOC_QUERY_EXT_CTRL, &qc) == 0);
 
-    m_card_name = m_driver_name = QString::null;
+    m_card_name.clear();
+    m_driver_name.clear();
     m_version = 0;
     m_capabilities = 0;
 
-    struct v4l2_capability capability = {0};
+    struct v4l2_capability capability;
+    memset(&capability, 0, sizeof(v4l2_capability));
     if (ioctl(m_fd, VIDIOC_QUERYCAP, &capability) >= 0)
     {
         m_card_name    = QString::fromLatin1((const char*)capability.card);
@@ -562,8 +568,8 @@ bool V4L2util::GetOptions(DriverOption::Options& options)
         return true;
     }
 
-    struct v4l2_queryctrl qctrl = { 0, };
-
+    struct v4l2_queryctrl qctrl;
+    memset(&qctrl, 0, sizeof(v4l2_queryctrl));
     qctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL;
     while (0 == ioctl (m_fd, VIDIOC_QUERYCTRL, &qctrl))
     {
@@ -613,8 +619,9 @@ int V4L2util::GetOptionValue(DriverOption::category_t cat, const QString& desc)
 bool V4L2util::GetVideoStandard(QString& name) const
 {
     v4l2_std_id std_id;
-    struct v4l2_standard standard = { 0, };
+    struct v4l2_standard standard;
 
+    memset(&standard, 0, sizeof(v4l2_standard));
     if (-1 == ioctl (m_fd, VIDIOC_G_STD, &std_id))
     {
         /* Note when VIDIOC_ENUMSTD always returns EINVAL this
@@ -653,8 +660,9 @@ int V4L2util::GetSignalStrength(void) const
 {
     return -1;   // Does not work
 
-    struct v4l2_tuner tuner = { 0, };
+    struct v4l2_tuner tuner;
 
+    memset(&tuner, 0, sizeof(v4l2_tuner));
     if (ioctl(m_fd, VIDIOC_G_TUNER, &tuner, 0) != 0)
     {
         LOG(VB_GENERAL, LOG_ERR, "GetSignalStrength() : "
@@ -672,8 +680,9 @@ int V4L2util::GetSignalStrength(void) const
 
 bool V4L2util::GetResolution(int& width, int& height) const
 {
-    struct v4l2_format vfmt = { 0, };
+    struct v4l2_format vfmt;
 
+    memset(&vfmt, 0, sizeof(v4l2_format));
     vfmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (ioctl(m_fd, VIDIOC_G_FMT, &vfmt) != 0)
     {
@@ -702,8 +711,9 @@ bool V4L2util::HasAudioSupport(void) const
 
 bool V4L2util::IsEncoder(void) const
 {
-    struct v4l2_queryctrl qctrl = { 0, };
+    struct v4l2_queryctrl qctrl;
 
+    memset(&qctrl, 0, sizeof(v4l2_queryctrl));
     qctrl.id = V4L2_CTRL_CLASS_MPEG | V4L2_CTRL_FLAG_NEXT_CTRL;
     return (0 == ioctl (m_fd, VIDIOC_QUERYCTRL, &qctrl) &&
             V4L2_CTRL_ID2CLASS (qctrl.id) == V4L2_CTRL_CLASS_MPEG);
@@ -721,11 +731,13 @@ bool V4L2util::UserAdjustableResolution(void) const
 
 int V4L2util::GetExtControl(int request, const QString& ctrl_desc) const
 {
-    struct v4l2_ext_control  ctrl = { 0, };
-    struct v4l2_ext_controls ctrls = { 0, };
+    struct v4l2_ext_control  ctrl;
+    struct v4l2_ext_controls ctrls;
 
+    memset(&ctrl, 0, sizeof(v4l2_ext_control));
     ctrl.id     = request;
 
+    memset(&ctrls, 0, sizeof(v4l2_ext_controls));
     ctrls.count      = 1;
     ctrls.ctrl_class = V4L2_CTRL_CLASS_MPEG;
     ctrls.controls   = &ctrl;
@@ -757,12 +769,14 @@ bool V4L2util::SetExtControl(int request, int value, const QString& ctrl_desc,
         return true;
     }
 
-    struct v4l2_ext_control  ctrl = { 0, };
-    struct v4l2_ext_controls ctrls = { 0, };
+    struct v4l2_ext_control  ctrl;
+    struct v4l2_ext_controls ctrls;
 
+    memset(&ctrl, 0, sizeof(v4l2_ext_control));
     ctrl.id          = request;
     ctrl.value       = value;
 
+    memset(&ctrls, 0, sizeof(v4l2_ext_controls));
     ctrls.count      = 1;
     ctrls.ctrl_class = V4L2_CTRL_CLASS_MPEG;
     ctrls.controls    = &ctrl;
@@ -932,8 +946,9 @@ bool V4L2util::SetResolution(uint32_t width, uint32_t height)
 // Audio controls
 bool V4L2util::SetAudioInput(int value)
 {
-    struct v4l2_audio ain = { 0, };
+    struct v4l2_audio ain;
 
+    memset(&ain, 0, sizeof(v4l2_audio));
     ain.index = value;
     if (ioctl(m_fd, VIDIOC_ENUMAUDIO, &ain) < 0)
     {
@@ -1037,8 +1052,9 @@ bool V4L2util::SetVolume(int volume)
 
 bool V4L2util::SetLanguageMode(int mode)
 {
-    struct v4l2_tuner vt = { 0, };
+    struct v4l2_tuner vt;
 
+    memset(&vt, 0, sizeof(v4l2_tuner));
     if (ioctl(m_fd, VIDIOC_G_TUNER, &vt) < 0)
     {
         LOG(VB_CHANNEL, LOG_WARNING, LOC +
@@ -1183,8 +1199,9 @@ bool V4L2util::SetAudioBitrateL2(int value)
 // Actions
 bool V4L2util::SetEncoderState(int mode, const QString& desc)
 {
-    struct v4l2_encoder_cmd command = { 0, };
+    struct v4l2_encoder_cmd command;
 
+    memset(&command, 0, sizeof(v4l2_encoder_cmd));
     command.cmd   = mode;
     if (ioctl(m_fd, VIDIOC_ENCODER_CMD, &command) != 0 && errno != ENOTTY)
     {
@@ -1220,15 +1237,16 @@ bool V4L2util::ResumeEncoding(void)
     return SetEncoderState(V4L2_ENC_CMD_RESUME, "Resume");
 }
 
-bool V4L2util::OpenVBI(const QString& vbi_dev_name)
+bool V4L2util::OpenVBI(const QString& /*vbi_dev_name*/)
 {
     return false;
 }
 
 bool V4L2util::SetSlicedVBI(const VBIMode::vbimode_t& vbimode)
 {
-    struct v4l2_format vbifmt = { 0, };
+    struct v4l2_format vbifmt;
 
+    memset(&vbifmt, 0, sizeof(v4l2_format));
     vbifmt.type = V4L2_BUF_TYPE_SLICED_VBI_CAPTURE;
     vbifmt.fmt.sliced.service_set |= (VBIMode::PAL_TT == vbimode) ?
                                      V4L2_SLICED_VBI_625 : V4L2_SLICED_VBI_525;

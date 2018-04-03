@@ -36,7 +36,7 @@ class Content : public ContentServices
 
     public:
 
-        Q_INVOKABLE explicit Content( QObject *parent = 0 ) {}
+        Q_INVOKABLE explicit Content( QObject */*parent*/ = 0 ) {}
 
     public:
 
@@ -263,5 +263,3 @@ class ScriptableContent : public QObject
 Q_SCRIPT_DECLARE_QMETAOBJECT_MYTHTV( ScriptableContent, QObject*);
 
 #endif
-
-

@@ -14,12 +14,15 @@
 extern "C" {
 #include "libavutil/pixdesc.h"
 #include "libavcodec/avcodec.h"
+#include "libavutil/imgutils.h"
 }
 
 #include "avformatdecoder.h"
 #include "mythcorecontext.h"
 #include "mythlogging.h"
 #include "omxcontext.h"
+#include "mythavutil.h"
+
 using namespace omxcontext;
 
 
@@ -92,9 +95,6 @@ void PrivateDecoderOMX::GetDecoders(render_opts &opts)
 PrivateDecoderOMX::PrivateDecoderOMX() :
     m_videc(gCoreContext->GetSetting("OMXVideoDecode", VIDEO_DECODE), *this),
     m_filter(0), m_bStartTime(false),
-#ifdef USING_BROADCOM
-    m_eMode(OMX_InterlaceFieldsInterleavedUpperFirst), m_bRepeatFirstField(false),
-#endif
     m_avctx(0),
     m_lock(QMutex::Recursive), m_bSettingsChanged(false),
     m_bSettingsHaveChanged(false)
@@ -284,6 +284,28 @@ bool PrivateDecoderOMX::Init(const QString &decoder, PlayerFlags flags,
     }
     avctx->pix_fmt = AV_PIX_FMT_YUV420P; // == FMT_YV12
 
+    // Update input buffers (default is 20 preset in OMX)
+    m_videc.GetPortDef(0);
+    OMX_PARAM_PORTDEFINITIONTYPE &indef = m_videc.PortDef(0);
+    OMX_U32 inputBuffers
+        = OMX_U32(gCoreContext->GetNumSetting("OmxInputBuffers", 30));
+    if (inputBuffers > 0U
+        && inputBuffers != indef.nBufferCountActual
+        && inputBuffers > indef.nBufferCountMin)
+    {
+        indef.nBufferCountActual = inputBuffers;
+        e = m_videc.SetParameter(OMX_IndexParamPortDefinition, &indef);
+        if (e != OMX_ErrorNone)
+        {
+            LOG(VB_PLAYBACK, LOG_ERR, LOC + QString(
+                    "Set input IndexParamPortDefinition error %1")
+                .arg(Error2String(e)));
+            return false;
+        }
+    }
+    m_videc.GetPortDef(0);
+    m_videc.ShowPortDef(0, LOG_INFO);
+
     // Ensure at least 2 output buffers
     OMX_PARAM_PORTDEFINITIONTYPE &def = m_videc.PortDef(1);
     if (def.nBufferCountActual < 2U ||
@@ -299,6 +321,8 @@ bool PrivateDecoderOMX::Init(const QString &decoder, PlayerFlags flags,
             return false;
         }
     }
+    m_videc.GetPortDef(0);
+    m_videc.ShowPortDef(1, LOG_INFO);
 
     // Goto OMX_StateIdle & allocate all buffers
     // This generates an error if fmt.eCompressionFormat is not supported
@@ -760,7 +784,8 @@ int PrivateDecoderOMX::GetFrame(
         *got_picture_ptr = 1;
 
     // Check for OMX_EventPortSettingsChanged notification
-    if (SettingsChanged(stream->codec) != OMX_ErrorNone)
+    AVCodecContext *avctx = gCodecMap->getCodecContext(stream);
+    if (SettingsChanged(avctx) != OMX_ErrorNone)
     {
         // PGB If there was an error, discard this packet
         *got_picture_ptr = 0;
@@ -793,7 +818,7 @@ int PrivateDecoderOMX::ProcessPacket(AVStream *stream, AVPacket *pkt)
     // Convert h264_mp4toannexb
     if (m_filter)
     {
-        AVCodecContext *avctx = stream->codec;
+        AVCodecContext *avctx = gCodecMap->getCodecContext(stream);
         int outbuf_size = 0;
         uint8_t *outbuf = NULL;
         int res = av_bitstream_filter_filter(m_filter, avctx, NULL, &outbuf,
@@ -815,14 +840,22 @@ int PrivateDecoderOMX::ProcessPacket(AVStream *stream, AVPacket *pkt)
         }
     }
 
+    // size is typically 50000 - 70000 but occasionally as low as 2500
+    // or as high as 360000
     while (size > 0)
     {
-        if (!m_ibufs_sema.tryAcquire(1, 5))
+        if (!m_ibufs_sema.tryAcquire(1, 100))
         {
-            LOG(VB_PLAYBACK, LOG_DEBUG, LOC + __func__ + " - no input buffers");
+            LOG(VB_GENERAL, LOG_ERR, LOC + __func__ +
+                " Ran out of OMX input buffers, see OmxInputBuffers setting.");
             ret = 0;
             break;
         }
+        int freebuffers = m_ibufs_sema.available();
+        if (freebuffers < 2)
+            LOG(VB_PLAYBACK, LOG_WARNING, LOC + __func__ +
+                QString(" Free OMX input buffers = %1, see OmxInputBuffers setting.")
+                .arg(freebuffers));
         m_lock.lock();
         assert(!m_ibufs.isEmpty());
         OMX_BUFFERHEADERTYPE *hdr = m_ibufs.takeFirst();
@@ -876,7 +909,7 @@ int PrivateDecoderOMX::GetBufferedFrame(AVStream *stream, AVFrame *picture)
     if (!picture)
         return -1;
 
-    AVCodecContext *avctx = stream->codec;
+    AVCodecContext *avctx = gCodecMap->getCodecContext(stream);
     if (!avctx)
         return -1;
 
@@ -888,9 +921,10 @@ int PrivateDecoderOMX::GetBufferedFrame(AVStream *stream, AVFrame *picture)
     OMX_BUFFERHEADERTYPE *hdr = m_obufs.takeFirst();
     m_lock.unlock();
 
-    if (hdr->nFlags & ~OMX_BUFFERFLAG_ENDOFFRAME)
+    OMX_U32 nFlags = hdr->nFlags;
+    if (nFlags & ~OMX_BUFFERFLAG_ENDOFFRAME)
         LOG(VB_PLAYBACK, LOG_DEBUG, LOC +
-            QString("Decoded frame flags=%1").arg(HeaderFlags(hdr->nFlags)) );
+            QString("Decoded frame flags=%1").arg(HeaderFlags(nFlags)) );
 
     if (avctx->pix_fmt < 0)
         avctx->pix_fmt = AV_PIX_FMT_YUV420P; // == FMT_YV12
@@ -1001,10 +1035,12 @@ int PrivateDecoderOMX::GetBufferedFrame(AVStream *stream, AVFrame *picture)
             buf = (unsigned char*)av_malloc(size);
             init(&vf, frametype, buf, out_width, out_height, size);
 
-            AVPicture img_in, img_out;
-            avpicture_fill(&img_out, (uint8_t *)vf.buf, out_fmt, out_width,
-                out_height);
-            avpicture_fill(&img_in, src, in_fmt, in_width, in_height);
+            AVFrame img_in, img_out;
+            av_image_fill_arrays(img_out.data, img_out.linesize,
+                (uint8_t *)vf.buf, out_fmt, out_width,
+                out_height, IMAGE_ALIGN);
+            av_image_fill_arrays(img_in.data, img_in.linesize,
+                src, in_fmt, in_width, in_height, IMAGE_ALIGN);
 
             LOG(VB_PLAYBACK, LOG_DEBUG, LOC + QString("Converting %1 to %2")
                 .arg(av_pix_fmt_desc_get(in_fmt)->name)
@@ -1018,42 +1054,19 @@ int PrivateDecoderOMX::GetBufferedFrame(AVStream *stream, AVFrame *picture)
 
         if (ret)
         {
-#ifdef USING_BROADCOM
-            switch (m_eMode)
-            {
-              case OMX_InterlaceProgressive:
+#ifdef OMX_BUFFERFLAG_INTERLACED
+            if (nFlags & OMX_BUFFERFLAG_INTERLACED)
+                picture->interlaced_frame = 1;
+            else
+#endif
                 picture->interlaced_frame = 0;
-                picture->top_field_first = 0;
-                break;
-              case OMX_InterlaceFieldSingleUpperFirst:
-                /* The data is interlaced, fields sent
-                 * separately in temporal order, with upper field first */
-                picture->interlaced_frame = 1;
+#ifdef OMX_BUFFERFLAG_TOP_FIELD_FIRST
+            if (nFlags & OMX_BUFFERFLAG_TOP_FIELD_FIRST)
                 picture->top_field_first = 1;
-                break;
-              case OMX_InterlaceFieldSingleLowerFirst:
-                picture->interlaced_frame = 1;
+            else
+#endif
                 picture->top_field_first = 0;
-                break;
-              case OMX_InterlaceFieldsInterleavedUpperFirst:
-                /* The data is interlaced, two fields sent together line
-                 * interleaved, with the upper field temporally earlier */
-                picture->interlaced_frame = 1;
-                picture->top_field_first = 1;
-                break;
-              case OMX_InterlaceFieldsInterleavedLowerFirst:
-                picture->interlaced_frame = 1;
-                picture->top_field_first = 0;
-                break;
-              case OMX_InterlaceMixed:
-                /* The stream may contain a mixture of progressive
-                 * and interlaced frames */
-                picture->interlaced_frame = 1;
-                break;
-            }
-            picture->repeat_pict = m_bRepeatFirstField;
-#endif // USING_BROADCOM
-
+            picture->repeat_pict = 0;
             if (!frame)
             {
                 // Copy OMX buffer to the frame provided
@@ -1126,55 +1139,6 @@ OMX_ERRORTYPE PrivateDecoderOMX::SettingsChanged(AVCodecContext *avctx)
         LOG(VB_PLAYBACK, LOG_ERR, LOC + QString(
                 "SetParameter IndexParamVideoPortFormat error %1")
             .arg(Error2String(e)));
-
-#ifdef USING_BROADCOM
-    OMX_CONFIG_INTERLACETYPE inter;
-    e = GetInterlace(inter, index);
-    if (e == OMX_ErrorNone)
-    {
-        LOG(VB_PLAYBACK, LOG_INFO, LOC + QString("%1%2")
-            .arg(Interlace2String(inter.eMode))
-            .arg(inter.bRepeatFirstField ? " rpt 1st" : "") );
-
-        m_bRepeatFirstField = inter.bRepeatFirstField;
-        m_eMode = inter.eMode;
-#if 0 // Can't change interlacing setting, at least not on RPi
-        switch (inter.eMode)
-        {
-          case OMX_InterlaceProgressive:
-            break;
-
-          case OMX_InterlaceFieldSingleUpperFirst:
-          case OMX_InterlaceFieldSingleLowerFirst:
-            break;
-
-          case OMX_InterlaceFieldsInterleavedUpperFirst:
-            /* The data is interlaced, two fields sent together line
-             * interleaved, with the upper field temporally earlier */
-            inter.eMode = OMX_InterlaceFieldSingleUpperFirst;
-            break;
-          case OMX_InterlaceFieldsInterleavedLowerFirst:
-            inter.eMode = OMX_InterlaceFieldSingleLowerFirst;
-            break;
-
-          case OMX_InterlaceMixed:
-            inter.eMode = OMX_InterlaceFieldSingleUpperFirst;
-            break;
-        }
-
-        if (m_eMode != inter.eMode)
-        {
-            e = m_videc.SetConfig(OMX_IndexConfigCommonInterlace, &inter);
-            if (e == OMX_ErrorNone)
-                m_eMode = inter.eMode;
-            else
-                LOG(VB_PLAYBACK, LOG_ERR, LOC + QString(
-                        "Set ConfigCommonInterlace error %1")
-                    .arg(Error2String(e)));
-        }
-#endif
-    }
-#endif // USING_BROADCOM
 
 #ifdef USING_BROADCOM
     if (VERBOSE_LEVEL_CHECK(VB_PLAYBACK, LOG_INFO))

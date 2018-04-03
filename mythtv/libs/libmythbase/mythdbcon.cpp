@@ -23,6 +23,7 @@
 #include "exitcodes.h"
 #include "mthread.h"
 #include "mythdate.h"
+#include "portchecker.h"
 
 #define DEBUG_RECONNECT 0
 #if DEBUG_RECONNECT
@@ -136,12 +137,20 @@ bool MSqlDatabase::OpenDatabase(bool skipdb)
         m_db.setDatabaseName(m_dbparms.dbName);
         m_db.setUserName(m_dbparms.dbUserName);
         m_db.setPassword(m_dbparms.dbPassword);
-        m_db.setHostName(m_dbparms.dbHostName);
 
         if (m_dbparms.dbHostName.isEmpty())  // Bootstrapping without a database?
         {
             connected = true;              // Pretend to be connected
             return true;                   // to reduce errors
+        }
+        else
+        {
+            // code to ensure that a link-local ip address has the scope
+            int port = 3306;
+            if (m_dbparms.dbPort)
+                port = m_dbparms.dbPort;
+            PortChecker::resolveLinkLocal(m_dbparms.dbHostName, port);
+            m_db.setHostName(m_dbparms.dbHostName);
         }
 
         if (m_dbparms.dbPort)
@@ -155,9 +164,13 @@ bool MSqlDatabase::OpenDatabase(bool skipdb)
             m_dbparms.dbHostName == "127.0.0.1")
             m_db.setHostName("localhost");
 
+        // Default read timeout is 10 mins - set a better value 300 seconds
+        m_db.setConnectOptions(QString("MYSQL_OPT_READ_TIMEOUT=300"));
+
         connected = m_db.open();
 
-        if (!connected && m_dbparms.wolEnabled)
+        if (!connected && m_dbparms.wolEnabled
+            && gCoreContext->IsWOLAllowed())
         {
             int trycount = 0;
 
@@ -513,7 +526,7 @@ static void InitMSqlQueryInfo(MSqlQueryInfo &qi)
 
 
 MSqlQuery::MSqlQuery(const MSqlQueryInfo &qi)
-         : QSqlQuery(QString::null, qi.qsqldb)
+         : QSqlQuery(QString(), qi.qsqldb)
 {
     m_isConnected = false;
     m_db = qi.db;
@@ -648,7 +661,13 @@ bool MSqlQuery::exec()
     // if the query failed with "MySQL server has gone away"
     // Close and reopen the database connection and retry the query if it
     // connects again
-    if (!result && QSqlQuery::lastError().number() == 2006 && Reconnect())
+    if (!result
+#if QT_VERSION < QT_VERSION_CHECK(5,3,0)
+        && QSqlQuery::lastError().number() == 2006
+#else
+        && QSqlQuery::lastError().nativeErrorCode() == "2006"
+#endif
+        && Reconnect())
         result = QSqlQuery::exec();
 
     if (!result)
@@ -734,7 +753,13 @@ bool MSqlQuery::exec(const QString &query)
     // if the query failed with "MySQL server has gone away"
     // Close and reopen the database connection and retry the query if it
     // connects again
-    if (!result && QSqlQuery::lastError().number() == 2006 && Reconnect())
+    if (!result
+#if QT_VERSION < QT_VERSION_CHECK(5,3,0)
+        && QSqlQuery::lastError().number() == 2006
+#else
+        && QSqlQuery::lastError().nativeErrorCode() == "2006"
+#endif
+        && Reconnect())
         result = QSqlQuery::exec(query);
 
     LOG(VB_DATABASE, LOG_INFO,
@@ -855,7 +880,13 @@ bool MSqlQuery::prepare(const QString& query)
     // if the prepare failed with "MySQL server has gone away"
     // Close and reopen the database connection and retry the query if it
     // connects again
-    if (!ok && QSqlQuery::lastError().number() == 2006 && Reconnect())
+    if (!ok
+#if QT_VERSION < QT_VERSION_CHECK(5,3,0)
+        && QSqlQuery::lastError().number() == 2006
+#else
+        && QSqlQuery::lastError().nativeErrorCode() == "2006"
+#endif
+        && Reconnect())
         ok = true;
 
     if (!ok && !(GetMythDB()->SuppressDBMessages()))
@@ -937,7 +968,7 @@ void MSqlAddMoreBindings(MSqlBindings &output, MSqlBindings &addfrom)
 }
 
 struct Holder {
-    Holder( const QString& hldr = QString::null, int pos = -1 )
+    Holder( const QString& hldr = QString(), int pos = -1 )
         : holderName( hldr ), holderPos( pos ) {}
 
     bool operator==( const Holder& h ) const

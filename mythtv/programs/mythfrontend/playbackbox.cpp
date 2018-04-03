@@ -258,9 +258,9 @@ static QString construct_sort_title(
 
         QString sortprefix;
         if (recpriority > 0)
-            sortprefix.sprintf("+%03u", 1000 - recpriority);
+            sortprefix.sprintf("+%03d", 1000 - recpriority);
         else
-            sortprefix.sprintf("-%03u", -recpriority);
+            sortprefix.sprintf("-%03d", -recpriority);
 
         sTitle = sortprefix + '-' + sTitle;
     }
@@ -272,7 +272,9 @@ static QString extract_main_state(const ProgramInfo &pginfo, const TV *player)
     QString state("normal");
     if (pginfo.GetFilesize() == 0)
         state = "error";
-    else if (pginfo.GetRecordingStatus() == RecStatus::Recording)
+    else if (pginfo.GetRecordingStatus() == RecStatus::Recording ||
+             pginfo.GetRecordingStatus() == RecStatus::Tuning ||
+             pginfo.GetRecordingStatus() == RecStatus::Failing)
         state = "running";
 
     if (((pginfo.GetRecordingStatus() != RecStatus::Recording) &&
@@ -297,6 +299,7 @@ QString PlaybackBox::extract_job_state(const ProgramInfo &pginfo)
     QString job = "default";
 
     if (pginfo.GetRecordingStatus() == RecStatus::Recording ||
+        pginfo.GetRecordingStatus() == RecStatus::Tuning ||
         pginfo.GetRecordingStatus() == RecStatus::Failing)
         job = "recording";
     else if (m_jobQueue.IsJobQueuedOrRunning(
@@ -388,7 +391,7 @@ void * PlaybackBox::RunPlaybackBox(void * player, bool showTV)
 }
 
 PlaybackBox::PlaybackBox(MythScreenStack *parent, QString name,
-                            TV *player, bool showTV)
+                         TV *player, bool /*showTV*/)
     : ScheduleCommon(parent, name),
       m_prefixes(QObject::tr("^(The |A |An )")),
       m_titleChaff(" \\(.*\\)$"),
@@ -497,7 +500,8 @@ PlaybackBox::PlaybackBox(MythScreenStack *parent, QString name,
     // recording group stuff
     m_recGroupIdx = -1;
     m_recGroupType.clear();
-    m_recGroupType[m_recGroup] = (displayCat) ? "category" : "recgroup";
+    m_recGroupType[m_recGroup] =
+            (displayCat && m_recGroup != "All Programs") ? "category" : "recgroup";
     m_groupDisplayName = ProgramInfo::i18n(m_recGroup);
 
     fillRecGroupPasswordCache();
@@ -624,7 +628,7 @@ void PlaybackBox::displayRecGroup(const QString &newRecGroup)
 {
     m_groupSelected = true;
 
-    QString password = m_recGroupPwCache[newRecGroup];
+    QString password = getRecGroupPassword(newRecGroup);
 
     m_newRecGroup = newRecGroup;
     if (m_curGroupPassword != password && !password.isEmpty())
@@ -655,8 +659,9 @@ void PlaybackBox::displayRecGroup(const QString &newRecGroup)
 
 void PlaybackBox::checkPassword(const QString &password)
 {
-    if (password == m_recGroupPwCache[m_newRecGroup])
+    if (password == getRecGroupPassword(m_newRecGroup))
     {
+        m_curGroupPassword = password;
         m_passwordEntered = true;
         setGroupFilter(m_newRecGroup);
     }
@@ -674,6 +679,7 @@ void PlaybackBox::updateGroupInfo(const QString &groupname,
 {
     InfoMap infoMap;
     int countInGroup;
+    QString desc;
 
     infoMap["group"] = m_groupDisplayName;
     infoMap["title"] = grouplabel;
@@ -707,10 +713,8 @@ void PlaybackBox::updateGroupInfo(const QString &groupname,
         }
     }
 
-    QString desc = tr("There is/are %n recording(s) in this display group",
-                      "", countInGroup);
 
-    if (countInGroup > 1)
+    if (countInGroup >= 1)
     {
         ProgramList  group     = m_progLists[groupname];
         float        groupSize = 0.0;
@@ -731,10 +735,13 @@ void PlaybackBox::updateGroupInfo(const QString &groupname,
             }
         }
 
-        desc += tr(", which consume %1");
-        desc += tr("GB", "GigaBytes");
-
-        desc = desc.arg(groupSize / 1024.0 / 1024.0 / 1024.0, 0, 'f', 2);
+        desc = tr("There is/are %n recording(s) in this display "
+                  "group, which consume(s) %1 GiB.", "", countInGroup)
+               .arg(groupSize / 1024.0 / 1024.0 / 1024.0, 0, 'f', 2);
+    }
+    else
+    {
+        desc = tr("There is no recording in this display group.");
     }
 
     infoMap["description"] = desc;
@@ -1664,142 +1671,159 @@ bool PlaybackBox::UpdateUILists(void)
             }
         }
 
+        bool isCategoryFilter  = (m_recGroupType[m_recGroup] == "category");
+        bool isUnknownCategory = (m_recGroup == tr("Unknown"));
+        bool isAllProgsGroup   = (m_recGroup == "All Programs");
+        bool isDeletedGroup    = (m_recGroup == "Deleted");
+        bool isLiveTvGroup     = (m_recGroup == "LiveTV");
+
         vector<ProgramInfo*> list;
         bool newest_first = (0==m_allOrder);
         m_programInfoCache.GetOrdered(list, newest_first);
         vector<ProgramInfo*>::const_iterator it = list.begin();
         for ( ; it != list.end(); ++it)
         {
-            if ((*it)->IsDeletePending())
+            ProgramInfo *p = *it;
+            if (p->IsDeletePending())
                 continue;
 
             m_progsInDB++;
-            ProgramInfo *p = *it;
+
+            const QString& pRecgroup(p->GetRecordingGroup());
+            const bool     isLiveTVProg(pRecgroup == "LiveTV");
+
+            // Never show anything from unauthorised passworded groups
+            QString password = getRecGroupPassword(pRecgroup);
+            if (m_curGroupPassword != password && !password.isEmpty())
+                continue;
+
+            if (pRecgroup == "Deleted")
+            {
+                // Filter nothing from Deleted group
+                // Never show Deleted recs anywhere else
+                if (!isDeletedGroup)
+                    continue;
+            }
+            // Optionally ignore LiveTV programs if not viewing LiveTV group
+            else if (!(m_viewMask & VIEW_LIVETVGRP) &&
+                     !isLiveTvGroup && isLiveTVProg)
+            {
+                continue;
+            }
+            // Optionally ignore watched
+            else if (!(m_viewMask & VIEW_WATCHED) && p->IsWatched())
+            {
+                continue;
+            }
+            else if (isCategoryFilter)
+            {
+                // Filter by category
+                if (isUnknownCategory ? !p->GetCategory().isEmpty()
+                                      : p->GetCategory() != m_recGroup)
+                    continue;
+            }
+            // Filter by recgroup
+            else if (!isAllProgsGroup && pRecgroup != m_recGroup)
+                continue;
 
             if (p->GetTitle().isEmpty())
                 p->SetTitle(tr("_NO_TITLE_"));
 
-            if ((((p->GetRecordingGroup() == m_recGroup) ||
-                  ((m_recGroup == "All Programs") &&
-                   (p->GetRecordingGroup() != "Deleted") &&
-                   (p->GetRecordingGroup() != "LiveTV")) ||
-                  (p->GetRecordingGroup() == "LiveTV" &&
-                   (m_viewMask & VIEW_LIVETVGRP))) &&
-                 (m_recGroupPwCache[m_recGroup] == m_curGroupPassword)) ||
-                ((m_recGroupType[m_recGroup] == "category") &&
-                 ((p->GetCategory() == m_recGroup ) ||
-                  ((p->GetCategory().isEmpty()) &&
-                   (m_recGroup == tr("Unknown")))) &&
-                 ( !m_recGroupPwCache.contains(p->GetRecordingGroup()))))
+            if (m_viewMask != VIEW_NONE && (!isLiveTVProg || isLiveTvGroup))
             {
-                if ((!(m_viewMask & VIEW_WATCHED)) && p->IsWatched())
-                    continue;
+                m_progLists[""].push_front(p);
+            }
 
-                if (m_viewMask != VIEW_NONE &&
-                    (p->GetRecordingGroup() != "LiveTV" ||
-                     m_recGroup == "LiveTV"))
-                {
-                    m_progLists[""].push_front(p);
-                }
+            asRecordingID = p->GetRecordingID();
+            if (asCache.contains(asRecordingID))
+                p->SetAvailableStatus(asCache[asRecordingID], "UpdateUILists");
+            else
+                p->SetAvailableStatus(asAvailable,  "UpdateUILists");
 
-                asRecordingID = p->GetRecordingID();
-                if (asCache.contains(asRecordingID))
-                    p->SetAvailableStatus(asCache[asRecordingID], "UpdateUILists");
-                else
-                    p->SetAvailableStatus(asAvailable,  "UpdateUILists");
+            if (!isLiveTvGroup && isLiveTVProg && (m_viewMask & VIEW_LIVETVGRP))
+            {
+                QString tmpTitle = tr("Live TV");
+                sortedList[tmpTitle.toLower()] = tmpTitle;
+                m_progLists[tmpTitle.toLower()].push_front(p);
+                m_progLists[tmpTitle.toLower()].setAutoDelete(false);
+                continue;
+            }
 
-                if (m_recGroup != "LiveTV" &&
-                    (p->GetRecordingGroup() == "LiveTV") &&
-                    (m_viewMask & VIEW_LIVETVGRP))
-                {
-                    QString tmpTitle = tr("Live TV");
-                    sortedList[tmpTitle.toLower()] = tmpTitle;
-                    m_progLists[tmpTitle.toLower()].push_front(p);
-                    m_progLists[tmpTitle.toLower()].setAutoDelete(false);
-                    continue;
-                }
+            // Show titles
+            if ((m_viewMask & VIEW_TITLES) && (!isLiveTVProg || isLiveTvGroup))
+            {
+                sTitle = construct_sort_title(
+                            p->GetTitle(), m_viewMask, titleSort,
+                            p->GetRecordingPriority(), m_prefixes);
+                sTitle = sTitle.toLower();
 
-                if ((m_viewMask & VIEW_TITLES) && // Show titles
-                    ((p->GetRecordingGroup() != "LiveTV") ||
-                     (m_recGroup == "LiveTV")))
-                {
-                    sTitle = construct_sort_title(
-                        p->GetTitle(), m_viewMask, titleSort,
-                        p->GetRecordingPriority(), m_prefixes);
-                    sTitle = sTitle.toLower();
+                if (!sortedList.contains(sTitle))
+                    sortedList[sTitle] = p->GetTitle();
+                m_progLists[sortedList[sTitle].toLower()].push_front(p);
+                m_progLists[sortedList[sTitle].toLower()].setAutoDelete(false);
+            }
 
-                    if (!sortedList.contains(sTitle))
-                        sortedList[sTitle] = p->GetTitle();
-                    m_progLists[sortedList[sTitle].toLower()].push_front(p);
-                    m_progLists[sortedList[sTitle].toLower()].setAutoDelete(false);
-                }
+            // Show recording groups
+            if ((m_viewMask & VIEW_RECGROUPS) &&
+                !pRecgroup.isEmpty() && !isLiveTVProg)
+            {
+                sortedList[pRecgroup.toLower()] = pRecgroup;
+                m_progLists[pRecgroup.toLower()].push_front(p);
+                m_progLists[pRecgroup.toLower()].setAutoDelete(false);
+            }
 
-                if ((m_viewMask & VIEW_RECGROUPS) &&
-                    !p->GetRecordingGroup().isEmpty() &&
-                    p->GetRecordingGroup() != "LiveTV") // Show recording groups
-                {
-                    sortedList[p->GetRecordingGroup().toLower()] =
-                        p->GetRecordingGroup();
-                    m_progLists[p->GetRecordingGroup().toLower()]
-                        .push_front(p);
-                    m_progLists[p->GetRecordingGroup().toLower()]
-                        .setAutoDelete(false);
-                }
+            // Show categories
+            if ((m_viewMask & VIEW_CATEGORIES) && !p->GetCategory().isEmpty())
+            {
+                QString catl = p->GetCategory().toLower();
+                sortedList[catl] = p->GetCategory();
+                m_progLists[catl].push_front(p);
+                m_progLists[catl].setAutoDelete(false);
+            }
 
-                if ((m_viewMask & VIEW_CATEGORIES) &&
-                    !p->GetCategory().isEmpty()) // Show categories
-                {
-                    QString catl = p->GetCategory().toLower();
-                    sortedList[catl] = p->GetCategory();
-                    m_progLists[catl].push_front(p);
-                    m_progLists[catl].setAutoDelete(false);
-                }
-
-                if ((m_viewMask & VIEW_SEARCHES) &&
+            if ((m_viewMask & VIEW_SEARCHES) &&
                     !searchRule[p->GetRecordingRuleID()].isEmpty() &&
                     p->GetTitle() != searchRule[p->GetRecordingRuleID()])
-                {   // Show search rules
-                    QString tmpTitle = QString("(%1)")
+            {   // Show search rules
+                QString tmpTitle = QString("(%1)")
                         .arg(searchRule[p->GetRecordingRuleID()]);
-                    sortedList[tmpTitle.toLower()] = tmpTitle;
-                    m_progLists[tmpTitle.toLower()].push_front(p);
-                    m_progLists[tmpTitle.toLower()].setAutoDelete(false);
-                }
+                sortedList[tmpTitle.toLower()] = tmpTitle;
+                m_progLists[tmpTitle.toLower()].push_front(p);
+                m_progLists[tmpTitle.toLower()].setAutoDelete(false);
+            }
 
-                if ((m_viewMask & VIEW_WATCHLIST) &&
-                    p->GetRecordingGroup() != "LiveTV" &&
-                    p->GetRecordingGroup() != "Deleted")
+            if ((m_viewMask & VIEW_WATCHLIST) &&
+                !isLiveTVProg && pRecgroup != "Deleted")
+            {
+                if (m_watchListAutoExpire && !p->IsAutoExpirable())
                 {
-                    if (m_watchListAutoExpire && !p->IsAutoExpirable())
+                    p->SetRecordingPriority2(wlExpireOff);
+                    LOG(VB_FILE, LOG_INFO, QString("Auto-expire off:  %1")
+                        .arg(p->GetTitle()));
+                }
+                else if (p->IsWatched())
+                {
+                    p->SetRecordingPriority2(wlWatched);
+                    LOG(VB_FILE, LOG_INFO,
+                        QString("Marked as 'watched':  %1")
+                        .arg(p->GetTitle()));
+                }
+                else
+                {
+                    if (p->GetRecordingRuleID())
+                        recidEpisodes[p->GetRecordingRuleID()] += 1;
+                    if (recidEpisodes[p->GetRecordingRuleID()] == 1 ||
+                            !p->GetRecordingRuleID())
                     {
-                        p->SetRecordingPriority2(wlExpireOff);
-                        LOG(VB_FILE, LOG_INFO, QString("Auto-expire off:  %1")
-                                .arg(p->GetTitle()));
-                    }
-                    else if (p->IsWatched())
-                    {
-                        p->SetRecordingPriority2(wlWatched);
-                        LOG(VB_FILE, LOG_INFO,
-                            QString("Marked as 'watched':  %1")
-                                .arg(p->GetTitle()));
+                        m_progLists[m_watchGroupLabel].push_front(p);
+                        m_progLists[m_watchGroupLabel].setAutoDelete(false);
                     }
                     else
                     {
-                        if (p->GetRecordingRuleID())
-                            recidEpisodes[p->GetRecordingRuleID()] += 1;
-                        if (recidEpisodes[p->GetRecordingRuleID()] == 1 ||
-                            !p->GetRecordingRuleID())
-                        {
-                            m_progLists[m_watchGroupLabel].push_front(p);
-                            m_progLists[m_watchGroupLabel].setAutoDelete(false);
-                        }
-                        else
-                        {
-                            p->SetRecordingPriority2(wlEarlier);
-                            LOG(VB_FILE, LOG_INFO,
-                                QString("Not the earliest:  %1")
-                                    .arg(p->GetTitle()));
-                        }
+                        p->SetRecordingPriority2(wlEarlier);
+                        LOG(VB_FILE, LOG_INFO,
+                            QString("Not the earliest:  %1")
+                            .arg(p->GetTitle()));
                     }
                 }
             }
@@ -2144,7 +2168,7 @@ bool PlaybackBox::UpdateUILists(void)
             while (query.next())
             {
                 name = query.value(0).toString();
-                if (name != "Deleted" && name != "LiveTV")
+                if (name != "Deleted" && name != "LiveTV" && !name.startsWith('.'))
                 {
                     m_recGroups.append(name);
                     m_recGroupType[name] = "recgroup";
@@ -2302,6 +2326,13 @@ void PlaybackBox::PlayX(const ProgramInfo &pginfo,
         // XXX add anything for ignoreProgStart and ignoreLastPlayPos?
     }
     Close();
+}
+
+void PlaybackBox::ClearBookmark()
+{
+    ProgramInfo *pginfo = GetCurrentProgram();
+    if (pginfo)
+        pginfo->SaveBookmark(0);
 }
 
 void PlaybackBox::StopSelected(void)
@@ -2499,6 +2530,9 @@ bool PlaybackBox::Play(
 
     m_playingSomething = true;
     int initIndex = m_recordingList->StopLoad();
+
+    if (!gCoreContext->GetNumSetting("UseProgStartMark", 0))
+        ignoreProgStart = true;
 
     uint flags =
         (inPlaylist          ? kStartTVInPlayList       : kStartTVNoFlags) |
@@ -2975,10 +3009,15 @@ MythMenu* PlaybackBox::createPlayFromMenu()
 
     if (pginfo->IsBookmarkSet())
         menu->AddItem(tr("Play from bookmark"), SLOT(PlayFromBookmark()));
-    menu->AddItem(tr("Play from beginning"), SLOT(PlayFromBeginning()));
+
     if (pginfo->QueryLastPlayPos())
         menu->AddItem(tr("Play from last played position"),
                       SLOT(PlayFromLastPlayPos()));
+
+    menu->AddItem(tr("Play from beginning"), SLOT(PlayFromBeginning()));
+
+    if (pginfo->IsBookmarkSet())
+        menu->AddItem(tr("Clear bookmark"), SLOT(ClearBookmark()));
 
     return menu;
 }
@@ -3235,7 +3274,9 @@ void PlaybackBox::ShowActionPopup(const ProgramInfo &pginfo)
         }
     }
 
-    if (pginfo.GetRecordingStatus() == RecStatus::Recording &&
+    if ((pginfo.GetRecordingStatus() == RecStatus::Recording ||
+         pginfo.GetRecordingStatus() == RecStatus::Tuning ||
+         pginfo.GetRecordingStatus() == RecStatus::Failing) &&
         (!(sameProgram &&
            (tvstate == kState_WatchingLiveTV ||
             tvstate == kState_WatchingRecording))))
@@ -3293,9 +3334,6 @@ QString PlaybackBox::CreateProgramInfoString(const ProgramInfo &pginfo) const
     if (!pginfo.GetSubtitle().isEmpty())
     {
         extra = QString('\n') + pginfo.GetSubtitle();
-        int maxll = max(title.length(), 20);
-        if (extra.length() > maxll)
-            extra = extra.left(maxll - 3) + "...";
     }
 
     return QString("\n%1%2\n%3").arg(title).arg(extra).arg(timedate);
@@ -4621,8 +4659,6 @@ void PlaybackBox::setGroupFilter(const QString &recGroup)
     else if (newRecGroup == ProgramInfo::i18n("Deleted"))
         newRecGroup = "Deleted";
 
-    m_curGroupPassword = m_recGroupPwCache[recGroup];
-
     m_recGroup = newRecGroup;
 
     m_groupDisplayName = ProgramInfo::i18n(m_recGroup);
@@ -4645,7 +4681,7 @@ void PlaybackBox::setGroupFilter(const QString &recGroup)
 
 QString PlaybackBox::getRecGroupPassword(const QString &group)
 {
-    return m_recGroupPwCache[group];
+    return m_recGroupPwCache.value(group);
 }
 
 void PlaybackBox::fillRecGroupPasswordCache(void)
@@ -4668,10 +4704,10 @@ void PlaybackBox::fillRecGroupPasswordCache(void)
                 recgroup = "All Programs";
             else if (recgroup == ProgramInfo::i18n("LiveTV"))
                 recgroup = "LiveTV";
-            else if (m_recGroup == ProgramInfo::i18n("Deleted"))
+            else if (recgroup == ProgramInfo::i18n("Deleted"))
                 recgroup = "Deleted";
 
-            m_recGroupPwCache[recgroup] = query.value(1).toString();
+            m_recGroupPwCache.insert(recgroup, query.value(1).toString());
         }
     }
 }
@@ -5047,7 +5083,10 @@ void PlaybackBox::SetRecGroupPassword(const QString &newPassword)
         MythDB::DBError("PlaybackBox::SetRecGroupPassword",
                         query);
 
-    m_recGroupPwCache[m_recGroup] = newPassword;
+    if (newPassword.isEmpty())
+        m_recGroupPwCache.remove(m_recGroup);
+    else
+        m_recGroupPwCache.insert(m_recGroup, newPassword);
 }
 
 ///////////////////////////////////////////////////

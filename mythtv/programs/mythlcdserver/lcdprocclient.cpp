@@ -8,7 +8,8 @@
 */
 
 // c/c++
-#include <unistd.h>
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 #include <stdlib.h>
 #include <cmath>
 
@@ -191,7 +192,7 @@ bool LCDProcClient::connectToHost(const QString &lhostname, unsigned int lport)
         while (--timeout && m_socket->state() != QAbstractSocket::ConnectedState)
         {
             qApp->processEvents();
-            usleep(1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
             if (m_socket->state() == QAbstractSocket::ConnectedState)
             {
@@ -783,7 +784,7 @@ void LCDProcClient::describeServer()
     }
 }
 
-void LCDProcClient::veryBadThings(QAbstractSocket::SocketError error)
+void LCDProcClient::veryBadThings(QAbstractSocket::SocketError /*error*/)
 {
     // Deal with failures to connect and inabilities to communicate
     LOG(VB_GENERAL, LOG_ERR, QString("Could not connect to LCDd: %1")
@@ -1822,7 +1823,7 @@ void LCDProcClient::reset()
     init();
 }
 
-void LCDProcClient::dobigclock (bool init)
+void LCDProcClient::dobigclock (void)
 {
     QString aString;
     QString time = QTime::currentTime().toString( m_timeFormat );
@@ -1918,7 +1919,7 @@ void LCDProcClient::dobigclock (bool init)
 void LCDProcClient::outputTime()
 {
     if ( m_lcdBigClock )
-        dobigclock(0);
+        dobigclock();
     else
         dostdclock();
 }

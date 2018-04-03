@@ -53,6 +53,7 @@
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libswscale/swscale.h"
+#include "libavutil/imgutils.h"
 }
 
 #include "filtermanager.h"
@@ -121,7 +122,7 @@ VideoOutput *VideoOutput::Create(
     PIPState pipState,      const QSize &video_dim_buf,
     const QSize &video_dim_disp, float video_aspect,
     QWidget *parentwidget,  const QRect &embed_rect, float video_prate,
-    uint playerFlags)
+    uint playerFlags, QString &codecName)
 {
     (void) codec_priv;
     QStringList renderers;
@@ -187,14 +188,15 @@ VideoOutput *VideoOutput::Create(
     LOG(VB_PLAYBACK, LOG_INFO, LOC + "Allowed renderers (filt: " + decoder +
             "): " + to_comma_list(renderers));
 
-    QString renderer = QString::null;
+    QString renderer;
+
+    VideoDisplayProfile *vprof = new VideoDisplayProfile();
+
     if (renderers.size() > 0)
     {
-        VideoDisplayProfile vprof;
-        vprof.SetInput(video_dim_disp);
-
-        QString tmp = vprof.GetVideoRenderer();
-        if (vprof.IsDecoderCompatible(decoder) && renderers.contains(tmp))
+        vprof->SetInput(video_dim_disp, video_prate, codecName);
+        QString tmp = vprof->GetVideoRenderer();
+        if (vprof->IsDecoderCompatible(decoder) && renderers.contains(tmp))
         {
             renderer = tmp;
             LOG(VB_PLAYBACK, LOG_INFO, LOC + "Preferred renderer: " + renderer);
@@ -256,6 +258,8 @@ VideoOutput *VideoOutput::Create(
         else if (xvlist.contains(renderer))
             vo = new VideoOutputXv();
 #endif // USING_XV
+        if (vo)
+            vo->db_vdisp_profile = vprof;
 
         if (vo && !(playerFlags & kVideoIsNull))
         {
@@ -296,6 +300,7 @@ VideoOutput *VideoOutput::Create(
                 return vo;
             }
 
+            vo->db_vdisp_profile = NULL;
             delete vo;
             vo = NULL;
         }
@@ -307,6 +312,7 @@ VideoOutput *VideoOutput::Create(
                 return vo;
             }
 
+            vo->db_vdisp_profile = NULL;
             delete vo;
             vo = NULL;
         }
@@ -316,6 +322,7 @@ VideoOutput *VideoOutput::Create(
 
     LOG(VB_GENERAL, LOG_ERR, LOC +
         "Not compiled with any useable video output method.");
+    delete vprof;
 
     return NULL;
 }
@@ -354,7 +361,7 @@ VideoOutput *VideoOutput::Create(
  *         // Get pointer to "Last Shown Frame"
  *         frame = vo->GetLastShownFrame();
  *         // add OSD, do any filtering, etc.
- *         vo->ProcessFrame(frame, osd, filters, pict-in-pict);
+ *         vo->ProcessFrame(frame, osd, filters, pict-in-pict, scan);
  *         // tells show what frame to be show, do other last minute stuff
  *         vo->PrepareFrame(frame, scan);
  *         // here you wait until it's time to show the frame
@@ -394,7 +401,6 @@ VideoOutput::VideoOutput() :
     db_display_dim(0,0),
     db_aspectoverride(kAspect_Off), db_adjustfill(kAdjustFill_Off),
     db_letterbox_colour(kLetterBoxColour_Black),
-    db_deint_filtername(QString::null),
 
     // Video parameters
     video_codec_id(kCodec_NONE),        db_vdisp_profile(NULL),
@@ -427,6 +433,7 @@ VideoOutput::VideoOutput() :
 
     // OSD
     osd_painter(NULL),                  osd_image(NULL),
+    invalid_osd_painter(0),
 
     // Visualisation
     m_visual(NULL),
@@ -445,8 +452,7 @@ VideoOutput::VideoOutput() :
     db_letterbox_colour = (LetterBoxColour)
         gCoreContext->GetNumSetting("LetterboxColour",     0);
 
-    if (!gCoreContext->IsDatabaseIgnored())
-        db_vdisp_profile = new VideoDisplayProfile();
+    db_vdisp_profile = 0;
 }
 
 /**
@@ -459,6 +465,9 @@ VideoOutput::~VideoOutput()
         osd_image->DecrRef();
     if (osd_painter)
         delete osd_painter;
+    if (invalid_osd_painter)
+        delete invalid_osd_painter;
+    invalid_osd_painter = 0;
 
     ShutdownPipResize();
 
@@ -522,21 +531,7 @@ QString VideoOutput::GetFilters(void) const
 {
     if (db_vdisp_profile)
         return db_vdisp_profile->GetFilters();
-    return QString::null;
-}
-
-bool VideoOutput::IsPreferredRenderer(QSize video_size)
-{
-    if (!db_vdisp_profile || (video_size == window.GetVideoDispDim()))
-        return true;
-
-    VideoDisplayProfile vdisp;
-    vdisp.SetInput(video_size);
-    QString new_rend = vdisp.GetVideoRenderer();
-    if (new_rend.isEmpty())
-        return true;
-
-    return db_vdisp_profile->CheckVideoRendererGroup(new_rend);
+    return QString();
 }
 
 void VideoOutput::SetVideoFrameRate(float playback_fps)
@@ -564,10 +559,11 @@ bool VideoOutput::SetDeinterlacingEnabled(bool enable)
 }
 
 /**
- * \fn VideoOutput::SetupDeinterlace(bool,const QString&)
  * \brief Attempts to enable or disable deinterlacing.
  * \return true if successful, false otherwise.
- * \param overridefilter optional, explicitly use this nondefault deint filter
+ * \param interlaced Desired state of interlacing.
+ * \param overridefilter optional, explicitly use this nondefault
+ *                       deinterlacing filter
  */
 bool VideoOutput::SetupDeinterlace(bool interlaced,
                                    const QString& overridefilter)
@@ -623,7 +619,7 @@ bool VideoOutput::SetupDeinterlace(bool interlaced,
                     QString("Failed to approve '%1' deinterlacer "
                             "as a software deinterlacer")
                         .arg(m_deintfiltername));
-                m_deintfiltername = QString::null;
+                m_deintfiltername.clear();
             }
             else
             {
@@ -760,13 +756,18 @@ bool VideoOutput::InputChanged(const QSize &video_dim_buf,
                                float        aspect,
                                MythCodecID  myth_codec_id,
                                void        *codec_private,
-                               bool        &aspect_only)
+                               bool        &/*aspect_only*/)
 {
     window.InputChanged(video_dim_buf, video_dim_disp,
                         aspect, myth_codec_id, codec_private);
 
+    AVCodecID avCodecId = (AVCodecID) myth2av_codecid(myth_codec_id);
+    AVCodec *codec = avcodec_find_decoder(avCodecId);
+    QString codecName;
+    if (codec)
+        codecName = codec->name;
     if (db_vdisp_profile)
-        db_vdisp_profile->SetInput(window.GetVideoDim());
+        db_vdisp_profile->SetInput(window.GetVideoDim(),0,codecName);
     video_codec_id = myth_codec_id;
     BestDeint();
 
@@ -825,10 +826,10 @@ void VideoOutput::GetOSDBounds(QRect &total, QRect &visible,
 }
 
 /**
- * \fn VideoOutput::GetVisibleOSDBounds(float&,float&,float) const
  * \brief Returns visible portions of total OSD bounds
  * \param visible_aspect physical aspect ratio of bounds returned
  * \param font_scaling   scaling to apply to fonts
+ * \param themeaspect    aspect ration of the theme
  */
 QRect VideoOutput::GetVisibleOSDBounds(
     float &visible_aspect, float &font_scaling, float themeaspect) const
@@ -1119,10 +1120,12 @@ void VideoOutput::ShowPIP(VideoFrame  *frame,
 
         if (pip_tmp_buf && pip_scaling_context)
         {
-            AVPicture img_in, img_out;
-            avpicture_fill(
-                &img_out, (uint8_t *)pip_tmp_buf, AV_PIX_FMT_YUV420P,
-                pip_display_size.width(), pip_display_size.height());
+            AVFrame img_in, img_out;
+            av_image_fill_arrays(
+                img_out.data, img_out.linesize,
+                (uint8_t *)pip_tmp_buf, AV_PIX_FMT_YUV420P,
+                pip_display_size.width(), pip_display_size.height(),
+                IMAGE_ALIGN);
 
             AVPictureFill(&img_in, pipimage);
 
@@ -1134,12 +1137,14 @@ void VideoOutput::ShowPIP(VideoFrame  *frame,
 
             if (pipActive)
             {
-                AVPicture img_padded;
-                avpicture_fill( &img_padded, (uint8_t *)pip_tmp_buf2,
-                    AV_PIX_FMT_YUV420P, pipw, piph);
+                AVFrame img_padded;
+                av_image_fill_arrays(img_padded.data, img_padded.linesize,
+                    (uint8_t *)pip_tmp_buf2,
+                    AV_PIX_FMT_YUV420P, pipw, piph, IMAGE_ALIGN);
 
                 int color[3] = { 20, 0, 200 }; //deep red YUV format
-                av_picture_pad(&img_padded, &img_out, piph, pipw,
+                av_picture_pad((AVPicture*)(&img_padded),
+                    (AVPicture*)(&img_out), piph, pipw,
                                AV_PIX_FMT_YUV420P, 4, 4, 4, 4, color);
 
                 int offsets[3] = {0, int(img_padded.data[1] - img_padded.data[0]),
@@ -1246,12 +1251,14 @@ void VideoOutput::ResizeVideo(VideoFrame *frame)
 
     if (vsz_tmp_buf && vsz_scale_context)
     {
-        AVPicture img_in, img_out;
+        AVFrame img_in, img_out;
 
-        avpicture_fill(&img_out, (uint8_t *)vsz_tmp_buf, AV_PIX_FMT_YUV420P,
-                       resize.width(), resize.height());
-        avpicture_fill(&img_in, (uint8_t *)frame->buf, AV_PIX_FMT_YUV420P,
-                       frame->width, frame->height);
+        av_image_fill_arrays(img_out.data, img_out.linesize,
+            (uint8_t *)vsz_tmp_buf, AV_PIX_FMT_YUV420P,
+            resize.width(), resize.height(),IMAGE_ALIGN);
+        av_image_fill_arrays(img_in.data, img_in.linesize,
+            (uint8_t *)frame->buf, AV_PIX_FMT_YUV420P,
+            frame->width, frame->height,IMAGE_ALIGN);
         img_in.data[0] = frame->buf + frame->offsets[0];
         img_in.data[1] = frame->buf + frame->offsets[1];
         img_in.data[2] = frame->buf + frame->offsets[2];

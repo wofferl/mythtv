@@ -26,6 +26,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
+
 // Qt
 #include <QDir>
 
@@ -43,7 +46,7 @@
             .arg(TVREC_CARDNUM).arg(videodevice)
 
 ImportRecorder::ImportRecorder(TVRec *rec) :
-    DTVRecorder(rec), _import_fd(-1)
+    DTVRecorder(rec), _import_fd(-1), m_cfp(NULL), m_nfc(0)
 {
 }
 
@@ -75,6 +78,26 @@ void ImportRecorder::SetOptionsFromProfile(RecordingProfile *profile,
     SetOption("vbiformat",   gCoreContext->GetSetting("VbiFormat"));
 }
 
+void UpdateFS(int pc, void* ir);
+void UpdateFS(int /*pc*/, void* ir)
+{
+    if(ir)
+        static_cast<ImportRecorder*>(ir)->UpdateRecSize();
+}
+
+void ImportRecorder::UpdateRecSize()
+{
+    curRecording->SaveFilesize(ringBuffer->GetRealFileSize());
+
+    if(m_cfp)
+        m_nfc=m_cfp->GetDecoder()->GetFramesRead();
+}
+
+long long ImportRecorder::GetFramesWritten(void)
+{
+    return m_nfc;
+}
+
 void ImportRecorder::run(void)
 {
     LOG(VB_RECORD, LOG_INFO, LOC + "run -- begin");
@@ -96,7 +119,7 @@ void ImportRecorder::run(void)
         // is called, just to avoid running this loop too often.
         QMutexLocker locker(&pauseLock);
         if (request_recording)
-            unpauseWait.wait(&pauseLock, 250);
+            unpauseWait.wait(&pauseLock, 15000);
     }
 
     curRecording->SaveFilesize(ringBuffer->GetRealFileSize());
@@ -108,6 +131,9 @@ void ImportRecorder::run(void)
             new MythCommFlagPlayer((PlayerFlags)(kAudioMuted | kVideoIsNull | kNoITV));
         RingBuffer *rb = RingBuffer::Create(
             ringBuffer->GetFilename(), false, true, 6000);
+        //This does update the status but does not set the ultimate
+        //recorded / failure status for the relevant recording
+        SetRecordingStatus(RecStatus::Recording, __FILE__, __LINE__);
 
         PlayerContext *ctx = new PlayerContext(kImportRecorderInUseID);
         ctx->SetPlayingInfo(curRecording);
@@ -115,7 +141,11 @@ void ImportRecorder::run(void)
         ctx->SetPlayer(cfp);
         cfp->SetPlayerInfo(NULL, NULL, ctx);
 
-        cfp->RebuildSeekTable(false);
+        m_cfp=cfp;
+        gCoreContext->RegisterFileForWrite(ringBuffer->GetFilename());
+        cfp->RebuildSeekTable(false,UpdateFS,this);
+        gCoreContext->UnregisterFileForWrite(ringBuffer->GetFilename());
+        m_cfp=NULL;
 
         delete ctx;
     }
@@ -186,7 +216,7 @@ bool ImportRecorder::Open(void)
         // Slow down run open loop when debugging -v record.
         // This is just to make the debugging output less spammy.
         if (VERBOSE_LEVEL_CHECK(VB_RECORD, LOG_ANY))
-            usleep(250 * 1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
         return false;
     }
@@ -194,6 +224,12 @@ bool ImportRecorder::Open(void)
     {
         LOG(VB_GENERAL, LOG_ERR, LOC +
             QString("'%1' is not readable").arg(fn));
+        return false;
+    }
+    else if (!f.size())
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+        QString("'%1' is empty").arg(fn));
         return false;
     }
 

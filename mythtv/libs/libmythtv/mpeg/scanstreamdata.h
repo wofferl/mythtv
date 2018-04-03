@@ -13,7 +13,7 @@ class MTV_PUBLIC ScanStreamData :
     public DVBStreamData
 {
   public:
-    ScanStreamData(bool no_default_pid = false);
+    explicit ScanStreamData(bool no_default_pid = false);
     virtual ~ScanStreamData();
 
     bool IsRedundant(uint pid, const PSIPTable&) const;
@@ -43,6 +43,10 @@ inline void ScanStreamData::SetFreesatAdditionalSI(bool freesat_si)
 {
     QMutexLocker locker(&_listener_lock);
     dvb_uk_freesat_si = freesat_si;
+    if (freesat_si)
+        AddListeningPID(FREESAT_SI_PID);
+    else
+        RemoveListeningPID(FREESAT_SI_PID);
 }
 
 #endif // SCANSTREAMDATA_H_

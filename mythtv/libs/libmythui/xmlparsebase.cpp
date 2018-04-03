@@ -13,6 +13,9 @@
 #include <QLinearGradient>
 #include <QRadialGradient>
 
+// libmythbase headers
+#include "mythconfig.h"
+
 // libmyth headers
 #include "mythlogging.h"
 
@@ -33,7 +36,11 @@
 #include "mythuiprogressbar.h"
 #include "mythuiscrollbar.h"
 #include "mythuigroup.h"
+
+#if CONFIG_QTWEBKIT
 #include "mythuiwebbrowser.h"
+#endif
+
 #include "mythuiguidegrid.h"
 #include "mythuishape.h"
 #include "mythuibuttontree.h"
@@ -127,6 +134,9 @@ MythRect XMLParseBase::parseRect(const QString &text, bool normalize)
     QStringList values = text.split(',', QString::SkipEmptyParts);
     if (values.size() == 4)
         retval = MythRect(values[0], values[1], values[2], values[3]);
+    if (values.size() == 5)
+        retval = MythRect(values[0], values[1], values[2], values[3],
+            values[4]);
 
      if (normalize)
          retval.NormRect();
@@ -359,10 +369,7 @@ void XMLParseBase::ParseChildren(const QString &filename,
         if (!info.isNull())
         {
             QString type = info.tagName();
-            if (parent->ParseElement(filename, info, showWarnings))
-            {
-            }
-            else if (type == "font" || type == "fontdef")
+            if (type == "fontdef")
             {
                 bool global = (GetGlobalObjectStore() == parent);
                 MythFontProperties *font = MythFontProperties::ParseFromXml(
@@ -400,8 +407,8 @@ void XMLParseBase::ParseChildren(const QString &filename,
             }
             else
             {
-                VERBOSE_XML(VB_GENERAL, LOG_ERR, filename, info,
-                            "Unknown widget type");
+                // This will print an error if there is no match.
+                parent->ParseElement(filename, info, showWarnings);
             }
         }
     }
@@ -491,8 +498,10 @@ MythUIType *XMLParseBase::ParseUIType(
         uitype = new MythUIProgressBar(parent, name);
     else if (type == "scrollbar")
         uitype = new MythUIScrollBar(parent, name);
+#if CONFIG_QTWEBKIT
     else if (type == "webbrowser")
         uitype = new MythUIWebBrowser(parent, name);
+#endif
     else if (type == "guidegrid")
         uitype = new MythUIGuideGrid(parent, name);
     else if (type == "shape")
@@ -566,10 +575,7 @@ MythUIType *XMLParseBase::ParseUIType(
         QDomElement info = child.toElement();
         if (!info.isNull())
         {
-            if (uitype->ParseElement(filename, info, showWarnings))
-            {
-            }
-            else if (info.tagName() == "font" || info.tagName() == "fontdef")
+            if (info.tagName() == "fontdef")
             {
                 bool global = (GetGlobalObjectStore() == parent);
                 MythFontProperties *font = MythFontProperties::ParseFromXml(
@@ -608,8 +614,8 @@ MythUIType *XMLParseBase::ParseUIType(
             }
             else
             {
-                VERBOSE_XML(VB_GENERAL, LOG_ERR, filename, info,
-                            "Unknown widget type.");
+                // This will print an error if there is no match.
+                uitype->ParseElement(filename, info, showWarnings);
             }
         }
     }

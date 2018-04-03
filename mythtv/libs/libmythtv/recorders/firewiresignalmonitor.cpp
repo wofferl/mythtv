@@ -2,8 +2,9 @@
 // Copyright (c) 2006, Daniel Thor Kristjansson
 
 #include <fcntl.h>
-#include <unistd.h>
 #include <sys/select.h>
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 #include "mythdbcon.h"
 #include "atscstreamdata.h"
@@ -43,16 +44,16 @@ QMutex           FirewireSignalMonitor::pat_keys_lock;
  *  \param _channel FirewireChannel for card
  *  \param _flags   Flags to start with
  */
-FirewireSignalMonitor::FirewireSignalMonitor(
-    int db_cardnum,
-    FirewireChannel *_channel,
-    uint64_t _flags) :
-    DTVSignalMonitor(db_cardnum, _channel, _flags),
-    dtvMonitorRunning(false),
-    tableMonitorThread(NULL),
-    stb_needs_retune(true),
-    stb_needs_to_wait_for_pat(false),
-    stb_needs_to_wait_for_power(false)
+FirewireSignalMonitor::FirewireSignalMonitor(int db_cardnum,
+                                             FirewireChannel *_channel,
+                                             bool _release_stream,
+                                             uint64_t _flags)
+    : DTVSignalMonitor(db_cardnum, _channel, _release_stream, _flags),
+      dtvMonitorRunning(false),
+      tableMonitorThread(NULL),
+      stb_needs_retune(true),
+      stb_needs_to_wait_for_pat(false),
+      stb_needs_to_wait_for_power(false)
 {
     LOG(VB_CHANNEL, LOG_INFO, LOC + "ctor");
 
@@ -146,7 +147,8 @@ void FirewireSignalMonitor::RunTableMonitor(void)
     {
         LOG(VB_CHANNEL, LOG_INFO, LOC + "RunTableMonitor(): -- err");
         while (dtvMonitorRunning)
-            usleep(10000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
         LOG(VB_CHANNEL, LOG_INFO, LOC + "RunTableMonitor(): -- err end");
         return;
     }
@@ -157,7 +159,7 @@ void FirewireSignalMonitor::RunTableMonitor(void)
     dev->AddListener(this);
 
     while (dtvMonitorRunning && GetStreamData())
-        usleep(10000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     LOG(VB_CHANNEL, LOG_INFO, LOC + "RunTableMonitor(): -- shutdown ");
 
@@ -165,7 +167,7 @@ void FirewireSignalMonitor::RunTableMonitor(void)
     dev->ClosePort();
 
     while (dtvMonitorRunning)
-        usleep(10000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     LOG(VB_CHANNEL, LOG_INFO, LOC + "RunTableMonitor(): -- end");
 }
@@ -291,7 +293,7 @@ void FirewireSignalMonitor::UpdateValues(void)
                 "Waiting for table monitor to start");
 
         while (!dtvMonitorRunning)
-            usleep(5000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
         LOG(VB_CHANNEL, LOG_INFO, LOC + "UpdateValues() -- "
                 "Table monitor started");

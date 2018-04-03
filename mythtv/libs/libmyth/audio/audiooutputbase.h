@@ -51,7 +51,7 @@ class AudioOutputBase : public AudioOutput, public MThread
 {
  public:
     const char *quality_string(int q);
-    AudioOutputBase(const AudioSettings &settings);
+    explicit AudioOutputBase(const AudioSettings &settings);
     virtual ~AudioOutputBase();
 
     AudioOutputSettings* GetOutputSettingsCleaned(bool digital = true);
@@ -76,7 +76,7 @@ class AudioOutputBase : public AudioOutput, public MThread
     virtual bool IsUpmixing(void);
     virtual bool ToggleUpmix(void);
     virtual bool CanUpmix(void);
-    virtual bool CanProcess(AudioFormat fmt) { return true; }
+    virtual bool CanProcess(AudioFormat /*fmt*/) { return true; }
     virtual uint32_t CanProcess(void)
     {
         // we support all codec
@@ -119,7 +119,8 @@ class AudioOutputBase : public AudioOutput, public MThread
     static const uint kAudioSRCInputSize = 16384;
 
     /// Audio Buffer Size -- should be divisible by 32,24,16,12,10,8,6,4,2..
-    static const uint kAudioRingBufferSize   = 3072000u;
+    // In other words, divisible by 96.
+    static const uint kAudioRingBufferSize   = 10239936u;
 
  protected:
     // Following function must be called from subclass constructor
@@ -135,7 +136,7 @@ class AudioOutputBase : public AudioOutput, public MThread
      */
     virtual int  GetBufferedOnSoundcard(void) const = 0;
     // Default implementation only supports 2ch s16le at 48kHz
-    virtual AudioOutputSettings* GetOutputSettings(bool digital)
+    virtual AudioOutputSettings* GetOutputSettings(bool /*digital*/)
         { return new AudioOutputSettings; }
     // You need to call this from any implementation in the dtor.
     void KillAudio(void);
@@ -201,6 +202,8 @@ class AudioOutputBase : public AudioOutput, public MThread
         QUALITY_HIGH     =  2,
     };
     int src_quality;
+    long source_bitrate;
+    int source_samplerate;
 
  private:
     bool SetupPassthrough(int codec, int codec_profile,
@@ -219,7 +222,6 @@ class AudioOutputBase : public AudioOutput, public MThread
     FreeSurround              *upmixer;
 
     int source_channels;
-    int source_samplerate;
     int source_bytes_per_frame;
     bool upmix_default;
     bool needs_upmix;
@@ -265,7 +267,6 @@ class AudioOutputBase : public AudioOutput, public MThread
     QMutex killAudioLock;
 
     long current_seconds;
-    long source_bitrate;
 
     float *src_in;
 

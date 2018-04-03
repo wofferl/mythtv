@@ -237,7 +237,7 @@ MythMediaType MythMediaDevice::DetectMediaType(void)
         else
         {
             LOG(VB_MEDIA, LOG_NOTICE, QString(
-                    "DetectMediaType(this=0x%1) unknown file type %2")
+                    "DetectMediaType(this=0x%1) unknown file type %1")
                 .arg(quintptr(this),0,16).arg(it.key()));
         }
     }
@@ -514,8 +514,8 @@ MythMediaStatus MythMediaDevice::setStatus( MythMediaStatus NewStatus,
 
 void MythMediaDevice::clearData()
 {
-    m_VolumeID = QString::null;
-    m_KeyID = QString::null;
+    m_VolumeID.clear();
+    m_KeyID.clear();
     m_MediaType = MEDIATYPE_UNKNOWN;
 }
 

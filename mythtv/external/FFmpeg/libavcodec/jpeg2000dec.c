@@ -26,6 +26,7 @@
  */
 
 #include <inttypes.h>
+#include <math.h>
 
 #include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
@@ -106,6 +107,7 @@ typedef struct Jpeg2000DecoderContext {
     int             tile_width, tile_height;
     unsigned        numXtiles, numYtiles;
     int             maxtilelen;
+    AVRational      sar;
 
     Jpeg2000CodingStyle codsty[4];
     Jpeg2000QuantStyle  qntsty[4];
@@ -260,6 +262,7 @@ static int get_siz(Jpeg2000DecoderContext *s)
     uint32_t log2_chroma_wh = 0;
     const enum AVPixelFormat *possible_fmts = NULL;
     int possible_fmts_nb = 0;
+    int ret;
 
     if (bytestream2_get_bytes_left(&s->g) < 36) {
         av_log(s->avctx, AV_LOG_ERROR, "Insufficient space for SIZ\n");
@@ -296,6 +299,16 @@ static int get_siz(Jpeg2000DecoderContext *s)
         avpriv_request_sample(s->avctx, "Support for %d components",
                               ncomponents);
         return AVERROR_PATCHWELCOME;
+    }
+
+    if (s->tile_offset_x < 0 || s->tile_offset_y < 0 ||
+        s->image_offset_x < s->tile_offset_x ||
+        s->image_offset_y < s->tile_offset_y ||
+        s->tile_width  + (int64_t)s->tile_offset_x <= s->image_offset_x ||
+        s->tile_height + (int64_t)s->tile_offset_y <= s->image_offset_y
+    ) {
+        av_log(s->avctx, AV_LOG_ERROR, "Tile offsets are invalid\n");
+        return AVERROR_INVALIDDATA;
     }
 
     s->ncomponents = ncomponents;
@@ -349,10 +362,13 @@ static int get_siz(Jpeg2000DecoderContext *s)
     }
 
     /* compute image size with reduction factor */
-    s->avctx->width  = ff_jpeg2000_ceildivpow2(s->width  - s->image_offset_x,
-                                               s->reduction_factor);
-    s->avctx->height = ff_jpeg2000_ceildivpow2(s->height - s->image_offset_y,
-                                               s->reduction_factor);
+    ret = ff_set_dimensions(s->avctx,
+            ff_jpeg2000_ceildivpow2(s->width  - s->image_offset_x,
+                                               s->reduction_factor),
+            ff_jpeg2000_ceildivpow2(s->height - s->image_offset_y,
+                                               s->reduction_factor));
+    if (ret < 0)
+        return ret;
 
     if (s->avctx->profile == FF_PROFILE_JPEG2000_DCINEMA_2K ||
         s->avctx->profile == FF_PROFILE_JPEG2000_DCINEMA_4K) {
@@ -737,9 +753,9 @@ static int get_sot(Jpeg2000DecoderContext *s, int n)
     bytestream2_get_byteu(&s->g);               // TNsot
 
     if (!Psot)
-        Psot = bytestream2_get_bytes_left(&s->g) + n + 2;
+        Psot = bytestream2_get_bytes_left(&s->g) - 2 + n + 2;
 
-    if (Psot > bytestream2_get_bytes_left(&s->g) + n + 2) {
+    if (Psot > bytestream2_get_bytes_left(&s->g) - 2 + n + 2) {
         av_log(s->avctx, AV_LOG_ERROR, "Psot %"PRIu32" too big\n", Psot);
         return AVERROR_INVALIDDATA;
     }
@@ -946,9 +962,9 @@ static int jpeg2000_decode_packet(Jpeg2000DecoderContext *s, Jpeg2000Tile *tile,
             if (!cblk->npasses) {
                 int v = expn[bandno] + numgbits - 1 -
                         tag_tree_decode(s, prec->zerobits + cblkno, 100);
-                if (v < 0) {
+                if (v < 0 || v > 30) {
                     av_log(s->avctx, AV_LOG_ERROR,
-                           "nonzerobits %d invalid\n", v);
+                           "nonzerobits %d invalid or unsupported\n", v);
                     return AVERROR_INVALIDDATA;
                 }
                 cblk->nonzerobits = v;
@@ -1755,9 +1771,12 @@ WRITE_FRAME(16, uint16_t)
 
 #undef WRITE_FRAME
 
-static int jpeg2000_decode_tile(Jpeg2000DecoderContext *s, Jpeg2000Tile *tile,
-                                AVFrame *picture)
+static int jpeg2000_decode_tile(AVCodecContext *avctx, void *td,
+                                int jobnr, int threadnr)
 {
+    Jpeg2000DecoderContext *s = avctx->priv_data;
+    AVFrame *picture = td;
+    Jpeg2000Tile *tile = s->tile + jobnr;
     int x;
 
     tile_codeblocks(s, tile);
@@ -1979,6 +1998,7 @@ static int jp2_find_codestream(Jpeg2000DecoderContext *s)
                 atom2_end  = bytestream2_tell(&s->g) + atom2_size - 8;
                 if (atom2_size < 8 || atom2_end > atom_end || atom2_end < atom2_size)
                     break;
+                atom2_size -= 8;
                 if (atom2 == JP2_CODESTREAM) {
                     return 1;
                 } else if (atom2 == MKBETAG('c','o','l','r') && atom2_size >= 7) {
@@ -2040,6 +2060,39 @@ static int jp2_find_codestream(Jpeg2000DecoderContext *s)
                         if (cn < 4 && asoc < 4)
                             s->cdef[cn] = asoc;
                     }
+                } else if (atom2 == MKBETAG('r','e','s',' ') && atom2_size >= 18) {
+                    int64_t vnum, vden, hnum, hden, vexp, hexp;
+                    uint32_t resx;
+                    bytestream2_skip(&s->g, 4);
+                    resx = bytestream2_get_be32u(&s->g);
+                    if (resx != MKBETAG('r','e','s','c') && resx != MKBETAG('r','e','s','d')) {
+                        bytestream2_seek(&s->g, atom2_end, SEEK_SET);
+                        continue;
+                    }
+                    vnum = bytestream2_get_be16u(&s->g);
+                    vden = bytestream2_get_be16u(&s->g);
+                    hnum = bytestream2_get_be16u(&s->g);
+                    hden = bytestream2_get_be16u(&s->g);
+                    vexp = bytestream2_get_byteu(&s->g);
+                    hexp = bytestream2_get_byteu(&s->g);
+                    if (!vnum || !vden || !hnum || !hden) {
+                        bytestream2_seek(&s->g, atom2_end, SEEK_SET);
+                        av_log(s->avctx, AV_LOG_WARNING, "RES box invalid\n");
+                        continue;
+                    }
+                    if (vexp > hexp) {
+                        vexp -= hexp;
+                        hexp = 0;
+                    } else {
+                        hexp -= vexp;
+                        vexp = 0;
+                    }
+                    if (   INT64_MAX / (hnum * vden) > pow(10, hexp)
+                        && INT64_MAX / (vnum * hden) > pow(10, vexp))
+                        av_reduce(&s->sar.den, &s->sar.num,
+                                  hnum * vden * pow(10, hexp),
+                                  vnum * hden * pow(10, vexp),
+                                  INT32_MAX);
                 }
                 bytestream2_seek(&s->g, atom2_end, SEEK_SET);
             } while (atom_end - atom2_end >= 8);
@@ -2067,7 +2120,7 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, void *data,
     Jpeg2000DecoderContext *s = avctx->priv_data;
     ThreadFrame frame = { .f = data };
     AVFrame *picture = data;
-    int tileno, ret;
+    int ret;
 
     s->avctx     = avctx;
     bytestream2_init(&s->g, avpkt->data, avpkt->size);
@@ -2114,9 +2167,7 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, void *data,
     if (ret = jpeg2000_read_bitstream_packets(s))
         goto end;
 
-    for (tileno = 0; tileno < s->numXtiles * s->numYtiles; tileno++)
-        if (ret = jpeg2000_decode_tile(s, s->tile + tileno, picture))
-            goto end;
+    avctx->execute2(avctx, jpeg2000_decode_tile, picture, NULL, s->numXtiles * s->numYtiles);
 
     jpeg2000_dec_cleanup(s);
 
@@ -2124,6 +2175,9 @@ static int jpeg2000_decode_frame(AVCodecContext *avctx, void *data,
 
     if (s->avctx->pix_fmt == AV_PIX_FMT_PAL8)
         memcpy(picture->data[1], s->palette, 256 * sizeof(uint32_t));
+    if (s->sar.num && s->sar.den)
+        avctx->sample_aspect_ratio = s->sar;
+    s->sar.num = s->sar.den = 0;
 
     return bytestream2_tell(&s->g);
 
@@ -2159,7 +2213,7 @@ AVCodec ff_jpeg2000_decoder = {
     .long_name        = NULL_IF_CONFIG_SMALL("JPEG 2000"),
     .type             = AVMEDIA_TYPE_VIDEO,
     .id               = AV_CODEC_ID_JPEG2000,
-    .capabilities     = AV_CODEC_CAP_FRAME_THREADS | AV_CODEC_CAP_DR1,
+    .capabilities     = AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS | AV_CODEC_CAP_DR1,
     .priv_data_size   = sizeof(Jpeg2000DecoderContext),
     .init_static_data = jpeg2000_init_static_data,
     .init             = jpeg2000_decode_init,

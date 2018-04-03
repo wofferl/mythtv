@@ -8,6 +8,7 @@
 #include "mythsystemlegacy.h"
 #include "mythsystemevent.h"
 #include "programinfo.h"
+#include "cardutil.h"
 #include "remoteutil.h"
 #include "exitcodes.h"
 #include "mythlogging.h"
@@ -49,10 +50,10 @@ class SystemEventThread : public QRunnable
 
         uint result = myth_system(m_command, flags);
 
-        if (result != GENERIC_EXIT_OK)
-            LOG(VB_GENERAL, LOG_WARNING, LOC +
-                QString("Command '%1' returned %2")
-                    .arg(m_command).arg(result));
+        LOG(VB_GENERAL,
+            (result == GENERIC_EXIT_OK ? LOG_INFO : LOG_WARNING), LOC +
+            QString("Finished '%1' result %2")
+            .arg(m_command).arg(result));
 
         if (m_event.isEmpty())
             return;
@@ -135,7 +136,9 @@ void MythSystemEventHandler::SubstituteMatches(const QStringList &tokens,
             (*it == "HOSTNAME") ||
             (*it == "SECS") ||
             (*it == "SENDER") ||
-            (*it == "PATH"))
+            (*it == "PATH") ||
+            (*it == "VIDEODEVICE") ||
+            (*it == "VBIDEVICE"))
         {
             QString token = *it;
 
@@ -304,6 +307,9 @@ void MythSystemEventHandler::customEvent(QEvent *e)
         {
             SubstituteMatches(tokens, cmd);
 
+            LOG(VB_GENERAL, LOG_INFO, LOC +
+                QString("Starting thread for command '%1'").arg(cmd));
+
             SystemEventThread *eventThread =
                 new SystemEventThread(cmd, tokens[1]);
             MThreadPool::globalInstance()->startReserved(
@@ -324,12 +330,16 @@ void SendMythSystemRecEvent(const QString &msg, const RecordingInfo *pginfo)
 {
     if (pginfo)
     {
+        uint cardid = pginfo->GetInputID();
         gCoreContext->SendSystemEvent(
-            QString("%1 CARDID %2 CHANID %3 STARTTIME %4 RECSTATUS %5")
-            .arg(msg).arg(pginfo->GetInputID())
+            QString("%1 CARDID %2 CHANID %3 STARTTIME %4 RECSTATUS %5 "
+                    "VIDEODEVICE %6 VBIDEVICE %7")
+            .arg(msg).arg(cardid)
             .arg(pginfo->GetChanID())
             .arg(pginfo->GetRecordingStartTime(MythDate::ISODate))
-            .arg(pginfo->GetRecordingStatus()));
+            .arg(pginfo->GetRecordingStatus())
+            .arg(CardUtil::GetVideoDevice(cardid))
+            .arg(CardUtil::GetVBIDevice(cardid)));
     }
     else
     {
@@ -381,6 +391,8 @@ MythSystemEventEditor::MythSystemEventEditor(MythScreenStack *parent,
     // base, the event names are listed in comments.
     m_settings["EventCmdRecPending"]           = // REC_PENDING
         tr("Recording pending");
+    m_settings["EventCmdRecPreFail"]           = // REC_PREFAIL
+        tr("Recording about to fail");
     m_settings["EventCmdRecFailing"]           = // REC_FAILING
         tr("Recording failing");
     m_settings["EventCmdRecStarted"]           = // REC_STARTED

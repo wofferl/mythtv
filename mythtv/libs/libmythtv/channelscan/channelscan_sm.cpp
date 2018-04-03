@@ -144,7 +144,7 @@ ChannelScanSM::ChannelScanSM(ScanMonitor *_scan_monitor,
     : // Set in constructor
       m_scanMonitor(_scan_monitor),
       m_channel(_channel),
-      m_signalMonitor(SignalMonitor::Init(_cardtype, -1, _channel)),
+      m_signalMonitor(SignalMonitor::Init(_cardtype, -1, _channel, true)),
       m_sourceID(_sourceID),
       m_signalTimeout(signal_timeout),
       m_channelTimeout(channel_timeout),
@@ -362,13 +362,21 @@ bool ChannelScanSM::ScanExistingTransports(uint sourceid, bool follow_nit)
     return m_scanning;
 }
 
+void ChannelScanSM::LogLines(const QString& string) const
+{
+    QStringList lines = string.split('\n');
+    for (int i = 0; i < lines.size(); i++)
+        LOG(VB_CHANSCAN, LOG_INFO, lines[i]);
+}
+
 void ChannelScanSM::HandlePAT(const ProgramAssociationTable *pat)
 {
     QMutexLocker locker(&m_lock);
 
     LOG(VB_CHANSCAN, LOG_INFO, LOC +
         QString("Got a Program Association Table for %1")
-            .arg((*m_current).FriendlyName) + "\n" + pat->toString());
+            .arg((*m_current).FriendlyName));
+    LogLines(pat->toString());
 
     // Add pmts to list, so we can do MPEG scan properly.
     ScanStreamData *sd = GetDTVSignalMonitor()->GetScanStreamData();
@@ -384,7 +392,8 @@ void ChannelScanSM::HandlePMT(uint, const ProgramMapTable *pmt)
     QMutexLocker locker(&m_lock);
 
     LOG(VB_CHANSCAN, LOG_INFO, LOC + QString("Got a Program Map Table for %1")
-            .arg((*m_current).FriendlyName) + "\n" + pmt->toString());
+            .arg((*m_current).FriendlyName));
+    LogLines(pmt->toString());
 
     if (!m_currentTestingDecryption &&
         pmt->IsEncrypted(GetDTVChannel()->GetSIStandard()))
@@ -397,7 +406,8 @@ void ChannelScanSM::HandleVCT(uint, const VirtualChannelTable *vct)
 
     LOG(VB_CHANSCAN, LOG_INFO, LOC +
         QString("Got a Virtual Channel Table for %1")
-            .arg((*m_current).FriendlyName) + "\n" + vct->toString());
+            .arg((*m_current).FriendlyName));
+    LogLines(vct->toString());
 
     for (uint i = 0; !m_currentTestingDecryption && i < vct->ChannelCount(); i++)
     {
@@ -415,18 +425,27 @@ void ChannelScanSM::HandleMGT(const MasterGuideTable *mgt)
     QMutexLocker locker(&m_lock);
 
     LOG(VB_CHANSCAN, LOG_INFO, LOC + QString("Got the Master Guide for %1")
-            .arg((*m_current).FriendlyName) + "\n" + mgt->toString());
+            .arg((*m_current).FriendlyName));
+    LogLines(mgt->toString());
 
     UpdateChannelInfo(true);
 }
 
-void ChannelScanSM::HandleSDT(uint tsid, const ServiceDescriptionTable *sdt)
+/**
+ * \fn ChannelScanSM::HandleSDT
+ *
+ * \param tsid Unused. Present so that the HandleSDT and HandleSDTo
+ *             functions have the same type signature.
+ * \param sdt  A pointer to the service description table.
+ */
+void ChannelScanSM::HandleSDT(uint /*tsid*/, const ServiceDescriptionTable *sdt)
 {
     QMutexLocker locker(&m_lock);
 
     LOG(VB_CHANSCAN, LOG_INFO, LOC +
         QString("Got a Service Description Table for %1")
-            .arg((*m_current).FriendlyName) + "\n" + sdt->toString());
+            .arg((*m_current).FriendlyName));
+    LogLines(sdt->toString());
 
     // If this is Astra 28.2 add start listening for Freesat BAT and SDTo
     if (!m_setOtherTables && (sdt->OriginalNetworkID() == 2 ||
@@ -472,7 +491,8 @@ void ChannelScanSM::HandleNIT(const NetworkInformationTable *nit)
 
     LOG(VB_CHANSCAN, LOG_INFO, LOC +
         QString("Got a Network Information Table for %1")
-            .arg((*m_current).FriendlyName) + "\n" + nit->toString());
+            .arg((*m_current).FriendlyName));
+    LogLines(nit->toString());
 
     UpdateChannelInfo(true);
 }
@@ -481,8 +501,10 @@ void ChannelScanSM::HandleBAT(const BouquetAssociationTable *bat)
 {
     QMutexLocker locker(&m_lock);
 
-    LOG(VB_CHANSCAN, LOG_INFO, LOC + "Got a Bouquet Association Table\n" +
-        bat->toString());
+    LOG(VB_CHANSCAN, LOG_INFO, LOC +
+        QString("Got a Bouquet Association Table for %1")
+            .arg((*m_current).FriendlyName));
+    LogLines(bat->toString());
 
     m_otherTableTime = m_timer.elapsed() + m_otherTableTimeout;
 
@@ -524,8 +546,8 @@ void ChannelScanSM::HandleSDTo(uint tsid, const ServiceDescriptionTable *sdt)
 {
     QMutexLocker locker(&m_lock);
 
-    LOG(VB_CHANSCAN, LOG_INFO, LOC +
-        "Got a Service Description Table (other)\n" + sdt->toString());
+    LOG(VB_CHANSCAN, LOG_INFO, LOC + "Got a Service Description Table (other)");
+    LogLines(sdt->toString());
 
     m_otherTableTime = m_timer.elapsed() + m_otherTableTimeout;
 
@@ -692,7 +714,7 @@ void ChannelScanSM::UpdateScanTransports(const NetworkInformationTable *nit)
             uint64_t frequency = 0;
             const MPEGDescriptor desc(list[j]);
             uint tag = desc.DescriptorTag();
-            DTVTunerType tt = DTVTunerType::kTunerTypeUnknown;
+            DTVTunerType tt(DTVTunerType::kTunerTypeUnknown);
 
             switch (tag)
             {
@@ -836,7 +858,7 @@ bool ChannelScanSM::UpdateChannelInfo(bool wait_until_complete)
             continue;
 
         if (!wait_until_complete || sd->HasCachedAllSDT(tsid))
-            m_currentInfo->sdts[tsid] = sd->GetCachedSDTs(tsid);
+            m_currentInfo->sdts[tsid] = sd->GetCachedSDTSections(tsid);
     }
     sd->ReturnCachedSDTTables(sdttmp);
 
@@ -871,7 +893,8 @@ bool ChannelScanSM::UpdateChannelInfo(bool wait_until_complete)
                     .arg(m_currentInfo->sdts.empty()));
         }
     }
-    transport_tune_complete |= !wait_until_complete;
+    if (!wait_until_complete)
+        transport_tune_complete = true;
     if (transport_tune_complete)
     {
         LOG(VB_CHANSCAN, LOG_INFO, LOC +
@@ -1042,7 +1065,7 @@ static void update_info(ChannelInsertInfo &info,
     if (info.service_name.isEmpty())
         info.service_name = vct->ShortChannelName(i);
 
-    info.chan_num           = QString::null;
+    info.chan_num.clear();
 
     info.service_id         = vct->ProgramNumber(i);
     info.atsc_major_channel = vct->MajorChannel(i);
@@ -1084,8 +1107,8 @@ static void update_info(ChannelInsertInfo &info,
 
     // Figure out best service name and callsign...
     ServiceDescriptor *desc = sdt->GetServiceDescriptor(i);
-    QString callsign = QString::null;
-    QString service_name = QString::null;
+    QString callsign;
+    QString service_name;
     if (desc)
     {
         callsign = desc->ServiceShortName();
@@ -1096,7 +1119,7 @@ static void update_info(ChannelInsertInfo &info,
 
         service_name = desc->ServiceName();
         if (service_name.trimmed().isEmpty())
-            service_name = QString::null;
+            service_name.clear();
     }
 
     if (info.callsign.isEmpty())
@@ -1150,7 +1173,8 @@ uint ChannelScanSM::GetCurrentTransportInfo(
 {
     if (m_current.iter() == m_scanTransports.end())
     {
-        cur_chan = cur_chan_tr = QString::null;
+        cur_chan.clear();
+        cur_chan_tr.clear();
         return 0;
     }
 
@@ -1187,7 +1211,7 @@ ChannelScanSM::GetChannelList(transport_scan_items_it_t trans_info,
 
     uint    mplexid   = (*trans_info).mplexid;
     int     freqid    = (*trans_info).friendlyNum;
-    QString freqidStr = (freqid) ? QString::number(freqid) : QString::null;
+    QString freqidStr = (freqid) ? QString::number(freqid) : QString();
     QString iptv_channel = (*trans_info).iptv_channel;
 
     // channels.conf
@@ -1389,9 +1413,16 @@ ChannelScanSM::GetChannelList(transport_scan_items_it_t trans_info,
         if ((info.si_standard == "mpeg") ||
             (info.si_standard == "scte") ||
             (info.si_standard == "opencable"))
-            info.chan_num = QString("%1-%2")
-                              .arg(info.freqid)
-                              .arg(info.service_id);
+        {
+            if (info.freqid.isEmpty())
+                info.chan_num = QString("%1-%2")
+                    .arg(info.source_id)
+                    .arg(info.service_id);
+            else
+                info.chan_num = QString("%1-%2")
+                    .arg(info.freqid)
+                    .arg(info.service_id);
+        }
     }
 
     // Check for decryption success
@@ -1412,7 +1443,8 @@ ScanDTVTransportList ChannelScanSM::GetChannelList(void) const
 
     uint cardid = m_channel->GetInputID();
 
-    DTVTunerType tuner_type = GuessDTVTunerType(DTVTunerType::kTunerTypeATSC);
+    DTVTunerType tuner_type(DTVTunerType::kTunerTypeATSC);
+    tuner_type = GuessDTVTunerType(tuner_type);
 
     ChannelList::const_iterator it = m_channelList.begin();
     for (; it != m_channelList.end(); ++it)
@@ -1853,7 +1885,7 @@ bool ChannelScanSM::ScanTransports(
 
             if (start.isEmpty() || name == start)
             {
-                start = QString::null;
+                start.clear();
 
                 TransportScanItem item(SourceID, std, name, name_num,
                                        freq, ft, m_signalTimeout);
@@ -2057,7 +2089,7 @@ bool ChannelScanSM::AddToList(uint mplexid)
     uint    sourceid   = query.value(0).toUInt();
     QString sistandard = query.value(1).toString();
     uint    tsid       = query.value(2).toUInt();
-    DTVTunerType tt = DTVTunerType::kTunerTypeUnknown;
+    DTVTunerType tt(DTVTunerType::kTunerTypeUnknown);
 
     QString fn = (tsid) ? QString("Transport ID %1").arg(tsid) :
         QString("Multiplex #%1").arg(mplexid);
@@ -2137,7 +2169,7 @@ bool ChannelScanSM::ScanCurrentTransport(const QString &sistandard)
 }
 
 /** \fn ChannelScanSM::CheckImportedList(const DTVChannelInfoList&,uint,QString&,QString&,QString&)
- *  \brief If we are scanning a dvb-utils import verify channel is in list..
+ *  \brief If we are scanning a dvb-utils import verify channel is in list.
  */
 bool ChannelScanSM::CheckImportedList(
     const DTVChannelInfoList &channels,

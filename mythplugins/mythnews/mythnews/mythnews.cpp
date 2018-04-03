@@ -188,7 +188,11 @@ void MythNews::loadSites(void)
         QString name = query.value(0).toString();
         QString url  = query.value(1).toString();
         QString icon = query.value(2).toString();
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
         QDateTime time = MythDate::fromTime_t(query.value(3).toUInt());
+#else
+        QDateTime time = MythDate::fromSecsSinceEpoch(query.value(3).toLongLong());
+#endif
         bool podcast = query.value(4).toInt();
         m_NewsSites.push_back(new NewsSite(name, url, time, podcast));
     }
@@ -252,7 +256,7 @@ void MythNews::updateInfoView(MythUIButtonListItem *selected)
                 // replace a few HTML characters
                 artText.replace("&#8232;", "");   // LSEP
                 artText.replace("&#8233;", "");   // PSEP
-                artText.replace("&#163;",  "£");  // POUND
+                artText.replace("&#163;",  u8"\u00A3");  // POUND
                 artText.replace("&#173;",  "");   // ?
                 artText.replace("&#8211;", "-");  // EN-DASH
                 artText.replace("&#8220;", """"); // LEFT-DOUBLE-QUOTE
@@ -391,7 +395,7 @@ void MythNews::updateInfoView(MythUIButtonListItem *selected)
         {
             QString text(tr("Updated") + " - ");
             QDateTime updated(site->lastUpdated());
-            if (updated.toTime_t() != 0) {
+            if (updated.isValid()) {
                 text += MythDate::toString(site->lastUpdated(),
                                            MythDate::kDateTimeFull | MythDate::kSimplify);
             }
@@ -484,7 +488,11 @@ void MythNews::slotRetrieveNews(void)
 
 void MythNews::slotNewsRetrieved(NewsSite *site)
 {
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
     unsigned int updated = site->lastUpdated().toTime_t();
+#else
+    qint64 updated = site->lastUpdated().toSecsSinceEpoch();
+#endif
 
     MSqlQuery query(MSqlQuery::InitCon());
     query.prepare("UPDATE newssites SET updated = :UPDATED "
@@ -734,20 +742,14 @@ void MythNews::customEvent(QEvent *event)
 
         if (resultid == "options")
         {
-            if (m_NewsSites.size() > 0)
-            {
-                if (buttonnum == 0)
-                    ShowFeedManager();
-                else if (buttonnum == 1)
-                    ShowEditDialog(false);
-                else if (buttonnum == 2)
-                    ShowEditDialog(true);
-                else if (buttonnum == 3)
-                    deleteNewsSite();
-            }
-            else
-                if (buttonnum == 0)
-                    ShowEditDialog(false);
+            if (buttonnum == 0)
+                ShowFeedManager();
+            else if (buttonnum == 1)
+                ShowEditDialog(false);
+            else if (buttonnum == 2)
+                ShowEditDialog(true);
+            else if (buttonnum == 3)
+                deleteNewsSite();
         }
 
         m_menuPopup = NULL;

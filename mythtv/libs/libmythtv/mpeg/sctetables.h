@@ -196,7 +196,7 @@ class MTV_PUBLIC SCTENetworkInformationTable : public PSIPTable
         assert(TableID::NITscte == TableID());
         Parse();
     }
-    SCTENetworkInformationTable(const PSIPTable &table) : PSIPTable(table)
+    explicit SCTENetworkInformationTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::NITscte == TableID());
         Parse();
@@ -260,7 +260,7 @@ class MTV_PUBLIC NetworkTextTable : public PSIPTable
         assert(TableID::NTT == TableID());
         Parse();
     }
-    NetworkTextTable(const PSIPTable &table) : PSIPTable(table)
+    explicit NetworkTextTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::NTT == TableID());
         Parse();
@@ -325,7 +325,7 @@ class MTV_PUBLIC NetworkTextTable : public PSIPTable
 class MTV_PUBLIC DefinedChannelsMapSubtable
 {
   public:
-    DefinedChannelsMapSubtable(const unsigned char *data) : _data(data) {}
+    explicit DefinedChannelsMapSubtable(const unsigned char *data) : _data(data) {}
     //   zero                   4   7.0       0
     //   first_virtual_channel 12   7.4
     uint FirstVirtualChannel(void) const
@@ -373,7 +373,11 @@ class VirtualChannelMapSubtable
     QDateTime ActivationTimeUTC(uint offset = 0) const
     {
         QDateTime dt;
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
         dt.setTime_t(GPS_EPOCH + offset + ActivationTimeRaw());
+#else
+        dt.setSecsSinceEpoch(GPS_EPOCH + offset + ActivationTimeRaw());
+#endif
         return dt;
     }
     //   number_of_VC_records   8 13.0
@@ -468,7 +472,7 @@ class VirtualChannelMapSubtable
 class MTV_PUBLIC InverseChannelMapSubtable
 {
   public:
-    InverseChannelMapSubtable(const unsigned char *data) : _data(data) {}
+    explicit InverseChannelMapSubtable(const unsigned char *data) : _data(data) {}
     //   zero                   4 7.0
     //   first_map_index       12 7.4
     uint FirstMapIndex(void) const { return ((_data[7]<<8)|_data[8]) & 0xfff; }
@@ -501,7 +505,7 @@ class MTV_PUBLIC ShortVirtualChannelTable : public PSIPTable
         assert(TableID::SVCTscte == TableID());
         Parse();
     }
-    ShortVirtualChannelTable(const PSIPTable &table) : PSIPTable(table)
+    explicit ShortVirtualChannelTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::SVCTscte == TableID());
         Parse();
@@ -568,7 +572,7 @@ class MTV_PUBLIC SCTESystemTimeTable : public PSIPTable
     {
         assert(TableID::STTscte == TableID());
     }
-    SCTESystemTimeTable(const PSIPTable &table) : PSIPTable(table)
+    explicit SCTESystemTimeTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::STTscte == TableID());
     }
@@ -589,9 +593,25 @@ class MTV_PUBLIC SCTESystemTimeTable : public PSIPTable
                 (pesdata()[7]<< 8) |  pesdata()[8]);
     }
     QDateTime SystemTimeGPS(void) const
-        { QDateTime dt; dt.setTime_t(GPSUnix()); return dt; }
+    {
+        QDateTime dt;
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
+        dt.setTime_t(GPSUnix());
+#else
+        dt.setSecsSinceEpoch(GPSUnix());
+#endif
+        return dt;
+    }
     QDateTime SystemTimeUTC(void) const
-        { QDateTime dt; dt.setTime_t(UTCUnix()); return dt; }
+    {
+        QDateTime dt;
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
+        dt.setTime_t(UTCUnix());
+#else
+        dt.setSecsSinceEpoch(UTCUnix());
+#endif
+        return dt;
+    }
     time_t GPSUnix(void) const
         { return GPS_EPOCH + SystemTimeRaw(); }
     time_t UTCUnix(void) const
@@ -618,14 +638,14 @@ class MTV_PUBLIC ProgramInformationMessageTable : public PSIPTable
     {
         assert(TableID::PIM == TableID());
     }
-    ProgramInformationMessageTable(const PSIPTable &table) : PSIPTable(table)
+    explicit ProgramInformationMessageTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::PIM == TableID());
     }
 
     QString toString(void) const
         { return "Program Information Message\n"; }
-    QString toStringXML(uint indent_level) const
+    QString toStringXML(uint /*indent_level*/) const
         { return "<ProgramInformationMessage />"; }
 };
 
@@ -638,14 +658,14 @@ class MTV_PUBLIC ProgramNameMessageTable : public PSIPTable
     {
         assert(TableID::PNM == TableID());
     }
-    ProgramNameMessageTable(const PSIPTable &table) : PSIPTable(table)
+    explicit ProgramNameMessageTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::PNM == TableID());
     }
 
     QString toString(void) const
         { return "Program Name Message\n"; }
-    QString toStringXML(uint indent_level) const
+    QString toStringXML(uint /*indent_level*/) const
         { return "<ProgramNameMessage />"; }
 };
 
@@ -658,7 +678,7 @@ class MTV_PUBLIC AggregateDataEventTable : public PSIPTable
     {
         assert(TableID::ADET == TableID());
     }
-    AggregateDataEventTable(const PSIPTable &table) : PSIPTable(table)
+    explicit AggregateDataEventTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::ADET == TableID());
     }

@@ -21,9 +21,16 @@ class UDPPacket
 {
   public:
     UDPPacket(const UDPPacket &o) : m_key(o.m_key), m_data(o.m_data) { }
-    UDPPacket(uint64_t key) : m_key(key) { }
+    explicit UDPPacket(uint64_t key) : m_key(key) { }
     UDPPacket(void) : m_key(0ULL) { }
     virtual ~UDPPacket() {}
+
+    UDPPacket& operator=(const UDPPacket &rhs)
+    {
+        m_key = rhs.m_key;
+        m_data = rhs.m_data;
+        return *this;
+    }
 
     /// IsValid() must return true before any data access methods are called,
     /// other than GetDataReference() and GetData()

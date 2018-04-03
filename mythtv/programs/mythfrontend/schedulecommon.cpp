@@ -20,10 +20,12 @@
 
 // mythfrontend
 #include "scheduleeditor.h"
-#include "progdetails.h"
+
 #include "proglist.h"
+#include "prevreclist.h"
 #include "customedit.h"
 #include "guidegrid.h"
+#include "progdetails.h"
 
 /**
 *  \brief Show the Program Details screen
@@ -189,7 +191,10 @@ void ScheduleCommon::EditScheduled(RecordingInfo *recinfo)
     if (schededit->Create())
         mainStack->AddScreen(schededit);
     else
+    {
         delete schededit;
+        ShowOkPopup(tr("Recording rule does not exist."));
+    }
 }
 
 /**
@@ -247,9 +252,16 @@ void ScheduleCommon::ShowPrevious(void) const
     if (!pginfo)
         return;
 
+    ShowPrevious(pginfo->GetRecordingRuleID(), pginfo->GetTitle());
+}
+
+/**
+*  \brief Show the previous recordings for this recording rule
+*/
+void ScheduleCommon::ShowPrevious(uint ruleid, const QString &title) const
+{
     MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
-    ProgLister *pl = new ProgLister(mainStack, pginfo->GetRecordingRuleID(),
-                                    pginfo->GetTitle());
+    PrevRecordedList *pl = new PrevRecordedList(mainStack, ruleid, title);
     if (pl->Create())
         mainStack->AddScreen(pl);
     else
@@ -260,7 +272,7 @@ void ScheduleCommon::ShowPrevious(void) const
 *  \brief Creates a dialog for editing the recording status,
 *         blocking until user leaves dialog.
 */
-void ScheduleCommon::EditRecording(void)
+void ScheduleCommon::EditRecording(bool may_watch_now)
 {
     ProgramInfo *pginfo = GetCurrentProgram();
     if (!pginfo)
@@ -323,6 +335,9 @@ void ScheduleCommon::EditRecording(void)
 
     QDateTime now = MythDate::current();
 
+    if(may_watch_now)
+        menuPopup->AddButton(tr("Watch This Channel"));
+
     if (recinfo.GetRecordingStatus() == RecStatus::Unknown)
     {
         if (recinfo.GetRecordingEndTime() > now)
@@ -347,10 +362,12 @@ void ScheduleCommon::EditRecording(void)
     }
     else if (recinfo.GetRecordingStatus() == RecStatus::Recording ||
              recinfo.GetRecordingStatus() == RecStatus::Tuning    ||
-             recinfo.GetRecordingStatus() == RecStatus::Failing)
+             recinfo.GetRecordingStatus() == RecStatus::Failing   ||
+             recinfo.GetRecordingStatus() == RecStatus::Pending)
     {
-        menuPopup->AddButton(tr("Stop this recording"),
-                             qVariantFromValue(recinfo));
+        if (recinfo.GetRecordingStatus() != RecStatus::Pending)
+            menuPopup->AddButton(tr("Stop this recording"),
+                                 qVariantFromValue(recinfo));
         menuPopup->AddButton(tr("Modify recording options"),
                              qVariantFromValue(recinfo));
     }

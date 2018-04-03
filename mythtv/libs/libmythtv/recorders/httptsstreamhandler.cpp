@@ -2,8 +2,8 @@
 #include "httptsstreamhandler.h"
 #include "mythlogging.h"
 
-// POSIX headers
-#include <unistd.h> // for usleep
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 #define LOC QString("HTTPTSSH(%1): ").arg(_device)
 
@@ -102,7 +102,7 @@ HTTPTSStreamHandler::~HTTPTSStreamHandler(void)
 void HTTPTSStreamHandler::run(void)
 {
     RunProlog();
-    int open_sleep = 250000;
+    int open_sleep = 250;
     LOG(VB_RECORD, LOG_INFO, LOC + "run() -- begin");
     SetRunning(true, false, false);
 
@@ -112,12 +112,12 @@ void HTTPTSStreamHandler::run(void)
         if (!m_reader->DownloadStream(m_tuning.GetURL(0)))
         {
             LOG(VB_RECORD, LOG_INFO, LOC + "DownloadStream failed to receive bytes from " + m_tuning.GetURL(0).toString());
-            usleep(open_sleep);
-            if (open_sleep < 10000000)
-                open_sleep += 250000;
+            std::this_thread::sleep_for(std::chrono::milliseconds(open_sleep));
+            if (open_sleep < 10000)
+                open_sleep += 250;
             continue;
         }
-        open_sleep = 250000;
+        open_sleep = 250;
     }
 
     delete m_reader;
@@ -166,7 +166,7 @@ bool HTTPReader::DownloadStream(const QUrl url)
         m_timer.stop();
 
     QMutexLocker  replylock(&m_replylock);
-    if (!m_reply->error() == QNetworkReply::NoError)
+    if (m_reply->error() != QNetworkReply::NoError)
     {
         LOG(VB_RECORD, LOG_ERR, LOC + "DownloadStream exited with " + m_reply->errorString());
     }
@@ -206,7 +206,7 @@ void HTTPReader::WriteBytes()
     if (m_size < TS_SIZE)
         return;
 
-    QMutexLocker  replylock(&m_bufferlock);
+    QMutexLocker bufferlock(&m_bufferlock);
     int remainder = 0;
     {
         QMutexLocker locker(&m_parent->_listener_lock);
@@ -218,7 +218,9 @@ void HTTPReader::WriteBytes()
         }
     }
     LOG(VB_RECORD, LOG_DEBUG, LOC + QString("WriteBytes: %1/%2 bytes remain").arg(remainder).arg(m_size));
-    memcpy(m_buffer, m_buffer + (m_size - remainder), remainder);
+
+    /* move the remaining data to the beginning of the buffer */
+    memmove(m_buffer, m_buffer + (m_size - remainder), remainder);
     m_size = remainder;
 }
 

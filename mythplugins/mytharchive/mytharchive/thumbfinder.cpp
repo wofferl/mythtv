@@ -56,6 +56,10 @@
 #include <mythimage.h>
 #include <mythconfig.h>
 
+extern "C" {
+#include "libavutil/imgutils.h"
+}
+
 #ifndef INT64_C    // Used in FFmpeg headers to define some constants
 #define INT64_C(v)   (v ## LL)
 #endif
@@ -158,6 +162,8 @@ bool ThumbFinder::Create(void)
     connect(m_cancelButton, SIGNAL(Clicked()), this, SLOT(cancelPressed()));
 
     connect(m_frameButton, SIGNAL(Clicked()), this, SLOT(updateThumb()));
+
+    m_seekAmountText->SetText(SeekAmounts[m_currentSeek].name);
 
     BuildFocusList();
 
@@ -272,6 +278,12 @@ void ThumbFinder::loadCutList()
     {
         progInfo->QueryCutList(m_deleteMap);
         delete progInfo;
+    }
+
+    if (m_deleteMap.isEmpty())
+    {
+        LOG(VB_GENERAL, LOG_ERR, "ThumbFinder::loadCutList: Got an empty delete map");
+        return;
     }
 
     // if the first mark is a end mark then add the start mark at the beginning
@@ -576,7 +588,7 @@ bool ThumbFinder::initAVCodec(const QString &inFile)
     for (uint i = 0; i < m_inputFC->nb_streams; i++)
     {
         AVStream *st = m_inputFC->streams[i];
-        if (m_inputFC->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+        if (m_inputFC->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
         {
             m_startTime = -1;
             if (m_inputFC->streams[i]->start_time != (int) AV_NOPTS_VALUE)
@@ -589,8 +601,8 @@ bool ThumbFinder::initAVCodec(const QString &inFile)
             }
 
             m_videostream = i;
-            m_frameWidth = st->codec->width;
-            m_frameHeight = st->codec->height;
+            m_frameWidth = st->codecpar->width;
+            m_frameHeight = st->codecpar->height;
             if (st->r_frame_rate.den && st->r_frame_rate.num)
                 m_fps = av_q2d(st->r_frame_rate);
             else
@@ -606,7 +618,8 @@ bool ThumbFinder::initAVCodec(const QString &inFile)
     }
 
     // get the codec context for the video stream
-    m_codecCtx = m_inputFC->streams[m_videostream]->codec;
+    m_codecCtx = gCodecMap->getCodecContext
+        (m_inputFC->streams[m_videostream]);
     m_codecCtx->debug_mv = 0;
     m_codecCtx->debug = 0;
     m_codecCtx->workaround_bugs = 1;
@@ -780,10 +793,10 @@ bool ThumbFinder::seekBackward()
 bool ThumbFinder::getFrameImage(bool needKeyFrame, int64_t requiredPTS)
 {
     AVPacket pkt;
-    AVPicture orig;
-    AVPicture retbuf;
-    memset(&orig, 0, sizeof(AVPicture));
-    memset(&retbuf, 0, sizeof(AVPicture));
+    AVFrame orig;
+    AVFrame retbuf;
+    memset(&orig, 0, sizeof(AVFrame));
+    memset(&retbuf, 0, sizeof(AVFrame));
 
     av_init_packet(&pkt);
 
@@ -819,8 +832,12 @@ bool ThumbFinder::getFrameImage(bool needKeyFrame, int64_t requiredPTS)
                 m_firstIFramePTS = pkt.dts;
 
             av_frame_unref(m_frame);
-            avcodec_decode_video2(m_codecCtx, m_frame, &frameFinished, &pkt);
-
+            frameFinished = 0;
+            int ret = avcodec_receive_frame(m_codecCtx, m_frame);
+            if (ret == 0)
+                frameFinished = 1;
+            if (ret == 0 || ret == AVERROR(EAGAIN))
+                ret = avcodec_send_packet(m_codecCtx, &pkt);
             if (requiredPTS != -1 && pkt.dts != (int64_t)AV_NOPTS_VALUE && pkt.dts < requiredPTS)
                 frameFinished = false;
 
@@ -832,8 +849,9 @@ bool ThumbFinder::getFrameImage(bool needKeyFrame, int64_t requiredPTS)
 
     if (frameFinished)
     {
-        avpicture_fill(&retbuf, m_outputbuf, AV_PIX_FMT_RGB32, m_frameWidth, m_frameHeight);
-        AVPicture *tmp = m_frame;
+        av_image_fill_arrays(retbuf.data, retbuf.linesize, m_outputbuf,
+            AV_PIX_FMT_RGB32, m_frameWidth, m_frameHeight, IMAGE_ALIGN);
+        AVFrame *tmp = m_frame;
 
         m_deinterlacer->DeinterlaceSingle(tmp, tmp);
 
@@ -870,8 +888,8 @@ void ThumbFinder::closeAVCodec()
         delete[] m_outputbuf;
 
     // close the codec
-    if (m_codecCtx)
-        avcodec_close(m_codecCtx);
+    gCodecMap->freeCodecContext
+        (m_inputFC->streams[m_videostream]);
 
     // close the video file
     m_inputFC.Close();

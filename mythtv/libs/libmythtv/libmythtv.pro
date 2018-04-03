@@ -1,9 +1,6 @@
 include ( ../../settings.pro )
 
-QT += network xml sql
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += widgets
-}
+QT += network xml sql widgets
 
 TEMPLATE = lib
 TARGET = mythtv-$$LIBVERSION
@@ -133,7 +130,7 @@ HEADERS += livetvchain.h            playgroup.h
 HEADERS += channelsettings.h
 HEADERS += previewgenerator.h       previewgeneratorqueue.h
 HEADERS += transporteditor.h        listingsources.h
-HEADERS += channelgroup.h           channelgroupsettings.h
+HEADERS += channelgroup.h
 HEADERS += recordingrule.h
 HEADERS += mythsystemevent.h
 HEADERS += avfringbuffer.h
@@ -163,7 +160,7 @@ SOURCES += livetvchain.cpp          playgroup.cpp
 SOURCES += channelsettings.cpp
 SOURCES += previewgenerator.cpp     previewgeneratorqueue.cpp
 SOURCES += transporteditor.cpp
-SOURCES += channelgroup.cpp         channelgroupsettings.cpp
+SOURCES += channelgroup.cpp
 SOURCES += recordingrule.cpp
 SOURCES += mythsystemevent.cpp
 SOURCES += avfringbuffer.cpp
@@ -207,6 +204,7 @@ HEADERS += mpeg/freesat_huffman.h   mpeg/freesat_tables.h
 HEADERS += mpeg/iso6937tables.h
 HEADERS += mpeg/tsstats.h           mpeg/streamlisteners.h
 HEADERS += mpeg/H264Parser.h
+HEADERS += mpeg/tablestatus.h
 
 SOURCES += mpeg/tspacket.cpp        mpeg/pespacket.cpp
 SOURCES += mpeg/mpegtables.cpp      mpeg/atsctables.cpp
@@ -222,6 +220,7 @@ SOURCES += mpeg/atsc_huffman.cpp
 SOURCES += mpeg/freesat_huffman.cpp
 SOURCES += mpeg/iso6937tables.cpp
 SOURCES += mpeg/H264Parser.cpp
+SOURCES += mpeg/tablestatus.cpp
 
 # Channels, and the multiplexes that transmit them
 HEADERS += frequencies.h            frequencytables.h
@@ -251,15 +250,23 @@ SOURCES += srtwriter.cpp
 inc.path = $${PREFIX}/include/mythtv/
 inc.files  = playgroup.h
 inc.files += mythtvexp.h            metadataimagehelper.h
-inc.files += mythavutil.h
+inc.files += mythavutil.h           mythframe.h
 
 INSTALLS += inc
 
 #DVD stuff
 DEPENDPATH  += ../../external/libmythdvdnav/
 DEPENDPATH  += ../../external/libmythdvdnav/dvdread # for dvd_reader.h & dvd_input.h
-QMAKE_CXXFLAGS += -isystem ../../external/libmythdvdnav/dvdnav
-QMAKE_CXXFLAGS += -isystem ../../external/libmythdvdnav/dvdread
+
+!win32-msvc* {
+  QMAKE_CXXFLAGS += -isystem ../../external/libmythdvdnav/dvdnav
+  QMAKE_CXXFLAGS += -isystem ../../external/libmythdvdnav/dvdread
+}
+
+win32-msvc* {
+  INCLUDEPATH += ../../external/libmythdvdnav/dvdnav
+  INCLUDEPATH += ../../external/libmythdvdnav/dvdread
+}
 
 !win32-msvc*:POST_TARGETDEPS += ../../external/libmythdvdnav/libmythdvdnav-$${MYTH_LIB_EXT}
 
@@ -276,7 +283,7 @@ LIBS += -lmythdvdnav-$$LIBVERSION
 
 #Bluray stuff
 DEPENDPATH   += ../../external/libmythbluray/
-INCLUDEPATH  += ../../external/libmythbluray/
+INCLUDEPATH  += ../../external/libmythbluray/src/
 !win32-msvc*:POST_TARGETDEPS += ../../external/libmythbluray/libmythbluray-$${MYTH_LIB_EXT}
 HEADERS += Bluray/bdiowrapper.h Bluray/bdringbuffer.h
 SOURCES += Bluray/bdiowrapper.cpp Bluray/bdringbuffer.cpp
@@ -530,8 +537,8 @@ using_backend {
     SOURCES += recorders/signalmonitor.cpp
     SOURCES += recorders/dtvsignalmonitor.cpp
 
-    HEADERS += inputinfo.h                 inputgroupmap.h
-    SOURCES += inputinfo.cpp               inputgroupmap.cpp
+    HEADERS += inputinfo.h
+    SOURCES += inputinfo.cpp
 
     # Channel scanner stuff
     HEADERS += scanwizard.h
@@ -599,16 +606,19 @@ using_backend {
     HEADERS += recorders/importrecorder.h
     SOURCES += recorders/importrecorder.cpp
 
-    # Simple NuppelVideo Recorder
-    #INCLUDEPATH += ../../external/minilzo
-    #DEPENDPATH += ../../external/minilzo
-    using_ffmpeg_threads:DEFINES += USING_FFMPEG_THREADS
-    !mingw:!win32-msvc*:HEADERS += recorders/NuppelVideoRecorder.h
+    using_libmp3lame {
+      # Simple NuppelVideo Recorder
+      #INCLUDEPATH += ../../external/minilzo
+      #DEPENDPATH += ../../external/minilzo
+      using_ffmpeg_threads:DEFINES += USING_FFMPEG_THREADS
+      !mingw:!win32-msvc*:HEADERS += recorders/NuppelVideoRecorder.h
+      !mingw:!win32-msvc*:SOURCES += recorders/NuppelVideoRecorder.cpp
+    }
+
     HEADERS += recorders/RTjpegN.h
     HEADERS += recorders/audioinput.h
     HEADERS += recorders/go7007_myth.h
 
-    !mingw:!win32-msvc*:SOURCES += recorders/NuppelVideoRecorder.cpp
     SOURCES += recorders/RTjpegN.cpp
     SOURCES += recorders/audioinput.cpp
     using_alsa {
@@ -732,7 +742,15 @@ using_backend {
     # Support for HDHomeRun box
     using_hdhomerun {
         # MythTV HDHomeRun glue
-        QMAKE_CXXFLAGS += -isystem ../../external/libhdhomerun
+
+        !win32-msvc* {
+          QMAKE_CXXFLAGS += -isystem ../../external/libhdhomerun
+        }
+
+        win32-msvc* {
+          INCLUDEPATH += ../../external/libhdhomerun
+        }
+
         DEPENDPATH += ../../external/libhdhomerun
 
         HEADERS += recorders/hdhrsignalmonitor.h
@@ -874,6 +892,7 @@ mingw | win32-msvc* {
 win32-msvc* {
   LIBS += -lzlib
   QMAKE_CXXFLAGS += "/FI compat.h"
+  DEFINES += HAVE_STRUCT_TIMESPEC
 }
 
 
@@ -904,9 +923,20 @@ LIBS += -lmythservicecontracts-$$LIBVERSION
 using_mheg: LIBS += -L../libmythfreemheg -lmythfreemheg-$$LIBVERSION
 using_live: LIBS += -L../libmythlivemedia -lmythlivemedia-$$LIBVERSION
 using_hdhomerun: LIBS += -L../../external/libhdhomerun -lmythhdhomerun-$$LIBVERSION
-using_backend: LIBS += -lmp3lame
+using_backend:using_mp3lame: LIBS += -lmp3lame
 using_backend: LIBS += -L../../external/minilzo -lmythminilzo-$$LIBVERSION
 LIBS += $$EXTRA_LIBS $$QMAKE_LIBS_DYNLOAD
+
+using_openmax {
+    contains( HAVE_OPENMAX_BROADCOM, yes ) {
+        using_opengl {
+            # For raspberry Pi Raspbian
+            exists(/opt/vc/lib/libbrcmEGL.so) {
+                LIBS += -L/opt/vc/lib/ -lbrcmGLESv2 -lbrcmEGL
+            }
+        }
+    }
+}
 
 !win32-msvc* {
     POST_TARGETDEPS += ../libmyth/libmyth-$${MYTH_SHLIB_EXT}
@@ -930,3 +960,10 @@ include ( ../libs-targetfix.pro )
 
 LIBS += $$LATE_LIBS
 DEFINES += MTV_API
+
+test_clean.commands = -cd test/ && $(MAKE) -f Makefile clean
+clean.depends = test_clean
+QMAKE_EXTRA_TARGETS += test_clean clean
+test_distclean.commands = -cd test/ && $(MAKE) -f Makefile distclean
+distclean.depends = test_distclean
+QMAKE_EXTRA_TARGETS += test_distclean distclean

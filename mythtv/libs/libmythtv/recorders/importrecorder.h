@@ -12,6 +12,7 @@
 
 struct AVFormatContext;
 struct AVPacket;
+class MythCommFlagPlayer;
 
 /** \brief ImportRecorder imports files, creating a seek map and
  *         other stuff that MythTV likes to have for recording.
@@ -22,7 +23,7 @@ struct AVPacket;
 class ImportRecorder : public DTVRecorder
 {
   public:
-    ImportRecorder(TVRec*);
+    explicit ImportRecorder(TVRec*);
     ~ImportRecorder();
 
     // RecorderBase
@@ -38,8 +39,14 @@ class ImportRecorder : public DTVRecorder
 
     void InitStreamData(void) {}
 
+    virtual long long GetFramesWritten(void);
+    virtual RecordingQuality *GetRecordingQuality(const RecordingInfo*) const {return NULL;}
+    void UpdateRecSize();
+
   private:
     int             _import_fd;
+    MythCommFlagPlayer *m_cfp;
+    long long m_nfc;
 };
 
 #endif // _IMPORT_RECORDER_H_

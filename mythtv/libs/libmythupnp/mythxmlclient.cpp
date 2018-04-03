@@ -115,7 +115,7 @@ UPnPResultCode MythXMLClient::GetConnectionInfo( const QString &sPin, DatabasePa
 
     if (( nErrCode == UPnPResult_HumanInterventionRequired ) || 
         ( nErrCode == UPnPResult_ActionNotAuthorized       ) ||
-        ( nErrCode == 501                                  ))
+        ( nErrCode == 501                                  ) )
     {
         // Service calls no longer return UPnPResult codes, 
         // convert standard 501 to UPnPResult code for now.

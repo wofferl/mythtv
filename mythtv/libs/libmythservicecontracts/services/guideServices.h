@@ -2,10 +2,10 @@
 // Program Name: guideservices.h
 // Created     : Mar. 7, 2011
 //
-// Purpose - Program Guide Services API Interface definition 
+// Purpose - Program Guide Services API Interface definition
 //
 // Copyright (c) 2010 David Blain <dblain@mythtv.org>
-//                                          
+//
 // Licensed under the GPL v2 or later, see COPYING for details
 //
 //////////////////////////////////////////////////////////////////////////////
@@ -40,7 +40,9 @@
 class SERVICE_PUBLIC GuideServices : public Service  //, public QScriptable ???
 {
     Q_OBJECT
-    Q_CLASSINFO( "version"    , "2.2" );
+    Q_CLASSINFO( "version"    , "2.4" )
+    Q_CLASSINFO( "AddToChannelGroup_Method",                     "POST" )
+    Q_CLASSINFO( "RemoveFromChannelGroup_Method",                "POST" )
 
     public:
 
@@ -91,7 +93,12 @@ class SERVICE_PUBLIC GuideServices : public Service  //, public QScriptable ???
         virtual QStringList         GetCategoryList     ( ) = 0;
 
         virtual QStringList         GetStoredSearches   ( const QString &Type ) = 0;
+
+        virtual bool                AddToChannelGroup   ( int              ChannelGroupId,
+                                                          int              ChanId ) = 0;
+
+        virtual bool                RemoveFromChannelGroup ( int           ChannelGroupId,
+                                                             int           ChanId ) = 0;
 };
 
 #endif
-

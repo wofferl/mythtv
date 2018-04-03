@@ -12,6 +12,7 @@
 #include <QNetworkProxy>
 #include <QMutexLocker>
 #include <QUrl>
+#include <QTcpSocket>
 
 #include "stdlib.h"
 
@@ -30,6 +31,7 @@
 
 #include "mythdownloadmanager.h"
 #include "mythlogging.h"
+#include "portchecker.h"
 
 using namespace std;
 
@@ -117,7 +119,7 @@ class MythCookieJar : public QNetworkCookieJar
 {
   public:
     MythCookieJar();
-    MythCookieJar(MythCookieJar &old);
+    void copyAllCookies(MythCookieJar &old);
     void load(const QString &filename);
     void save(const QString &filename);
 };
@@ -767,8 +769,12 @@ void MythDownloadManager::downloadQNetworkRequest(MythDownloadInfo *dlInfo)
         request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                              QNetworkRequest::PreferCache);
 
-    request.setRawHeader("User-Agent",
-                         "MythTV v" MYTH_BINARY_VERSION " MythDownloadManager");
+    if (!request.hasRawHeader("User-Agent"))
+    {
+        request.setRawHeader("User-Agent",
+                             "MythTV v" MYTH_BINARY_VERSION
+                             " MythDownloadManager");
+    }
 
     if (dlInfo->m_headers)
     {
@@ -847,6 +853,13 @@ bool MythDownloadManager::downloadNow(MythDownloadInfo *dlInfo, bool deleteInfo)
 
     dlInfo->m_syncMode = true;
 
+    // Special handling for link-local
+    // Not needed for Windows because windows does not need
+    // the scope id.
+#ifndef _WIN32
+    if (dlInfo->m_url.startsWith("http://[fe80::",Qt::CaseInsensitive))
+        return downloadNowLinkLocal(dlInfo,deleteInfo);
+#endif
     m_infoLock->lock();
     m_downloadQueue.push_back(dlInfo);
     m_infoLock->unlock();
@@ -894,8 +907,151 @@ bool MythDownloadManager::downloadNow(MythDownloadInfo *dlInfo, bool deleteInfo)
     return success;
 }
 
+#ifndef _WIN32
+/** \brief Download blocking methods with link-local address.
+ *
+ * Special processing for IPV6 link-local addresses, which
+ * are not accepted in the normal way, because QT classes
+ * QUrl and QNetworkManager do not support a scope id
+ * or percent sign in the ip address.
+ * This performs the call using base sockets. It is a bit
+ * less efficient as it does not keep the connection open
+ * or permit compressed content. However these calls are
+ * few and far between, only happening once during start
+ * of frontend.
+ *
+ * This also has limited capabilities and will return an error
+ * if an unsupported operation is attempted.
+ *
+ * This should never be used in Windows systems.
+ *
+ * \param dlInfo     Information on URI to download.
+ * \return true if download was successful, false otherwise.
+ */
+bool MythDownloadManager::downloadNowLinkLocal(MythDownloadInfo *dlInfo, bool deleteInfo)
+{
+    bool isOK = true;
+
+    // Only certain features are supported here
+    if (dlInfo->m_authCallback || dlInfo->m_authArg)
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("Unsupported authentication for %1").arg(dlInfo->m_url));
+        isOK = false;
+    }
+    if (!dlInfo->m_outFile.isEmpty())
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("Unsupported File output %1 for %2")
+              .arg(dlInfo->m_outFile).arg(dlInfo->m_url));
+        isOK = false;
+    }
+
+    if (!deleteInfo || dlInfo->m_requestType == kRequestHead)
+    {
+        // We do not have the ability to return a network reply in dlInfo
+        // so if we are asked to do that, return an error.
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("Unsupported link-local operation %1")
+              .arg(dlInfo->m_url));
+        isOK = false;
+    }
+
+    QUrl url(dlInfo->m_url);
+    QString host(url.host());
+    int port(url.port(80));
+    if (isOK && PortChecker::resolveLinkLocal(host, port))
+    {
+        QString reqType;
+        switch (dlInfo->m_requestType)
+        {
+            case kRequestPost :
+                reqType = "POST";
+                break;
+            case kRequestGet :
+            default:
+                reqType = "GET";
+                break;
+        }
+        QByteArray *aBuffer = dlInfo->m_data;
+        QHash<QByteArray, QByteArray> headers;
+        if (dlInfo->m_headers)
+            headers = *dlInfo->m_headers;
+        if (!headers.contains("User-Agent"))
+            headers.insert("User-Agent",
+                             "MythDownloadManager v" MYTH_BINARY_VERSION);
+        headers.insert("Connection", "close");
+        headers.insert("Accept-Encoding", "identity");
+        if (aBuffer && !aBuffer->isEmpty())
+            headers.insert("Content-Length",
+              (QString::number(aBuffer->size())).toUtf8());
+        headers.insert("Host",
+          (url.host()+":"+QString::number(port)).toUtf8());
+
+        QByteArray requestMessage;
+        QString path (url.path());
+        requestMessage.append("POST ");
+        requestMessage.append(path);
+        requestMessage.append(" HTTP/1.1\r\n");
+        QHashIterator<QByteArray, QByteArray> it(headers);
+        while (it.hasNext())
+        {
+            it.next();
+            requestMessage.append(it.key());
+            requestMessage.append(": ");
+            requestMessage.append(it.value());
+            requestMessage.append("\r\n");
+        }
+        requestMessage.append("\r\n");
+        if (aBuffer && !aBuffer->isEmpty())
+        {
+            requestMessage.append(*aBuffer);
+        }
+        QTcpSocket socket;
+        socket.connectToHost(host, port);
+        // QT Warning - this may not work on Windows
+        if (!socket.waitForConnected(5000))
+            isOK = false;
+        if (isOK)
+            isOK = (socket.write(requestMessage) > 0);
+        if (isOK)
+            // QT Warning - this may not work on Windows
+            isOK = socket.waitForDisconnected(5000);
+        if (isOK)
+        {
+            *aBuffer = socket.readAll();
+            // Find the start of the content
+            QByteArray delim("\r\n\r\n");
+            int delimLoc=aBuffer->indexOf(delim);
+            if (delimLoc > -1)
+                *aBuffer = aBuffer->right
+                  (aBuffer->size()-delimLoc-4);
+            else
+                isOK=false;
+        }
+        socket.close();
+    }
+    else
+        isOK = false;
+
+    if (deleteInfo)
+        delete dlInfo;
+
+    if (isOK)
+        return true;
+    else
+    {
+        LOG(VB_GENERAL, LOG_ERR, LOC + QString("Link Local request failed: %1")
+          .arg(url.toString()));
+        return false;
+    }
+
+}
+#endif
+
 /** \brief Cancel a queued or current download.
- *  \param url for download to cancel
+ *  \param url URL for download to cancel
+ *  \param block If true, wait until all the cancellations have finished.
  */
 void MythDownloadManager::cancelDownload(const QString &url, bool block)
 {
@@ -903,7 +1059,8 @@ void MythDownloadManager::cancelDownload(const QString &url, bool block)
 }
 
 /** \brief Cancel a queued or current download.
- *  \param list of urls for download to cancel
+ *  \param urls List of URLs for download to cancel
+ *  \param block If true, wait until all the cancellations have finished.
  */
 void MythDownloadManager::cancelDownload(const QStringList &urls, bool block)
 {
@@ -1555,7 +1712,8 @@ QNetworkCookieJar *MythDownloadManager::copyCookieJar(void)
         return NULL;
 
     MythCookieJar *inJar = static_cast<MythCookieJar *>(m_manager->cookieJar());
-    MythCookieJar *outJar = new MythCookieJar(*inJar);
+    MythCookieJar *outJar = new MythCookieJar;
+    outJar->copyAllCookies(*inJar);
 
     return static_cast<QNetworkCookieJar *>(outJar);
 }
@@ -1570,7 +1728,8 @@ void MythDownloadManager::refreshCookieJar(QNetworkCookieJar *jar)
         delete m_inCookieJar;
 
     MythCookieJar *inJar = static_cast<MythCookieJar *>(jar);
-    MythCookieJar *outJar = new MythCookieJar(*inJar);
+    MythCookieJar *outJar = new MythCookieJar;
+    outJar->copyAllCookies(*inJar);
     m_inCookieJar = static_cast<QNetworkCookieJar *>(outJar);
 
     QMutexLocker locker2(&m_queueWaitLock);
@@ -1584,7 +1743,8 @@ void MythDownloadManager::updateCookieJar(void)
     QMutexLocker locker(&m_cookieLock);
 
     MythCookieJar *inJar = static_cast<MythCookieJar *>(m_inCookieJar);
-    MythCookieJar *outJar = new MythCookieJar(*inJar);
+    MythCookieJar *outJar = new MythCookieJar;
+    outJar->copyAllCookies(*inJar);
     m_manager->setCookieJar(static_cast<QNetworkCookieJar *>(outJar));
 
     delete m_inCookieJar;
@@ -1594,7 +1754,7 @@ void MythDownloadManager::updateCookieJar(void)
 QString MythDownloadManager::getHeader(const QUrl& url, const QString& header)
 {
     if (!m_manager || !m_manager->cache())
-        return QString::null;
+        return QString();
 
     m_infoLock->lock();
     QNetworkCacheMetaData metadata = m_manager->cache()->metaData(url);
@@ -1623,14 +1783,14 @@ QString MythDownloadManager::getHeader(const QNetworkCacheMetaData &cacheData,
         }
     }
 
-    return QString::null;
+    return QString();
 }
 
 
-/** \brief Creates a MythCookieJar from another MythCookieJar
+/** \brief Copies all cookies from one MythCookieJar to another
  *  \param old the MythCookieJar to copy
  */
-MythCookieJar::MythCookieJar(MythCookieJar &old)
+void MythCookieJar::copyAllCookies(MythCookieJar &old)
 {
     const QList<QNetworkCookie> cookieList = old.allCookies();
     setAllCookies(cookieList);

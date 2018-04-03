@@ -17,9 +17,9 @@ class MTV_PUBLIC V4L2util
 {
   public:
     V4L2util(void);
-    V4L2util(const QString& dev_name);
+    explicit V4L2util(const QString& dev_name);
     V4L2util(const QString& dev_name, const QString& vbi_dev_name);
-    ~V4L2util(void) { Close(); }
+    ~V4L2util(void);
 
     bool Open(const QString& device_name, const QString& vbi_device_name = "");
     void Close(void);

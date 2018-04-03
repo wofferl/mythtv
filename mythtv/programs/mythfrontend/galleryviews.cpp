@@ -60,30 +60,8 @@ QString FlatView::GetPosition() const
 
 
 /*!
- \brief Peeks at next image in view but does not advance iterator
- \return ImageItem The next image or NULL
-*/
-ImagePtrK FlatView::HasNext() const
-{
-    return m_sequence.isEmpty() || m_active >= m_sequence.size() - 1
-            ? ImagePtrK() : m_images.value(m_sequence.at(m_active + 1));
-}
-
-
-/*!
- \brief Peeks at previous image in view but does not decrement iterator
- \return ImageItem The previous image or NULL
-*/
-ImagePtrK FlatView::HasPrev() const
-{
-    return m_sequence.isEmpty() || m_active <= 0
-            ? ImagePtrK() : m_images.value(m_sequence.at(m_active - 1));
-}
-
-
-/*!
  \brief Updates view with images that have been updated.
- \param idList List of image ids that have been updated
+ \param id Image id to update
  \return bool True if the current selection has been updated
 */
 bool FlatView::Update(int id)
@@ -148,27 +126,47 @@ void FlatView::Clear(bool resetParent)
 
 
 /*!
- \brief Advance iterator and return next image. Wraps at end and regenerates
- view order on wrap, if necessary
+ \brief Peeks at next image in view but does not advance iterator
+ \return ImageItem The next image or NULL
+*/
+ImagePtrK FlatView::HasNext(int inc) const
+{
+    return m_sequence.isEmpty() || m_active + inc >= m_sequence.size()
+            ? ImagePtrK() : m_images.value(m_sequence.at(m_active + inc));
+}
+
+
+/*!
+ \brief Advance iterator and return next image, wrapping if necessary.
+ Regenerates unordered views on wrap.
  \return ImageItem Next image or NULL if empty
 */
-ImagePtrK FlatView::Next()
+ImagePtrK FlatView::Next(int inc)
 {
     if (m_sequence.isEmpty())
         return ImagePtrK();
 
-    // wrap at end
-    if (m_active >= m_sequence.size() - 1)
-    {
-        if (m_order == kOrdered)
-            m_active = -1;
-        // Regenerate unordered views on every repeat
-        else if (!LoadFromDb(m_parentId))
-            // Images have disappeared
-            return ImagePtrK();
-    }
+    // Preserve index as it may be reset when wrapping
+    int next = m_active + inc;
 
-    return m_images.value(m_sequence.at(++m_active));
+    // Regenerate unordered views when wrapping
+    if (next >= m_sequence.size() && m_order != kOrdered && !LoadFromDb(m_parentId))
+        // Images have disappeared
+        return ImagePtrK();
+
+    m_active = next % m_sequence.size();
+    return m_images.value(m_sequence.at(m_active));
+}
+
+
+/*!
+ \brief Peeks at previous image in view but does not decrement iterator
+ \return ImageItem The previous image or NULL
+*/
+ImagePtrK FlatView::HasPrev(int inc) const
+{
+    return m_sequence.isEmpty() || m_active < inc
+            ? ImagePtrK() : m_images.value(m_sequence.at(m_active - inc));
 }
 
 
@@ -176,15 +174,17 @@ ImagePtrK FlatView::Next()
  \brief Decrements iterator and returns previous image. Wraps at start.
  \return ImageItem Previous image or NULL if empty
 */
-ImagePtrK FlatView::Prev()
+ImagePtrK FlatView::Prev(int inc)
 {
     if (m_sequence.isEmpty())
         return ImagePtrK();
 
-    if (m_active <= 0)
-        m_active = m_sequence.size();
+    // Wrap avoiding modulo of negative uncertainty
+    m_active -= inc % m_sequence.size();
+    if (m_active < 0)
+        m_active += m_sequence.size();
 
-    return m_images.value(m_sequence.at(--m_active));
+    return m_images.value(m_sequence.at(m_active));
 }
 
 
@@ -282,7 +282,11 @@ WeightList FlatView::CalculateSeasonalWeights(ImageList &files)
             weight = DEFAULT_WEIGHT;
         else
         {
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
             QDateTime timestamp = QDateTime::fromTime_t(im->m_date);
+#else
+            QDateTime timestamp = QDateTime::fromSecsSinceEpoch(im->m_date);
+#endif
             QDateTime curYearAnniversary =
                     QDateTime(QDate(now.date().year(),
                                     timestamp.date().month(),
@@ -546,7 +550,9 @@ void DirectoryView::LoadDirThumbs(ImageItem &parent, int thumbsNeeded, int level
 Use user cover, if assigned. Otherwise derive 4 thumbnails from: first 4 images,
 then 1st thumbnail from first 4 sub-dirs, then 2nd thumbnail from sub-dirs etc
  \param parent The parent dir
- \param limit Number of thumbnails required
+ \param thumbsNeeded Number of thumbnails required
+ \param files A list of files to process
+ \param dirs A list of directories to process
  \param level Recursion level (to detect recursion deadlocks)
 */
 void DirectoryView::PopulateThumbs(ImageItem &parent, int thumbsNeeded,
@@ -848,7 +854,7 @@ void DirectoryView::ClearCache()
  \brief Clear file/dir and all its ancestors from UI cache so that ancestor
  thumbnails are recalculated. Optionally deletes file/dir from view.
  \param id Image id
- \param remove If true, file is also deleted from view
+ \param deleted If true, file is also deleted from view
  \return QStringList Url of image & thumbnail to remove from image cache
 */
 QStringList DirectoryView::RemoveImage(int id, bool deleted)

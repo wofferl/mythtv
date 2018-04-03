@@ -88,6 +88,7 @@ using namespace std;
 
 #define GESTURE_TIMEOUT 1000
 #define STANDBY_TIMEOUT 90 // Minutes
+#define LONGPRESS_INTERVAL 1000
 
 #define LOC      QString("MythMainWindow: ")
 
@@ -199,7 +200,9 @@ class MythMainWindowPrivate
         disableIdle(false),
         NC(NULL),
         firstinit(true),
-        m_bSavedPOS(false)
+        m_bSavedPOS(false),
+        m_longPressKeyCode(0),
+        m_longPressTime(0)
     {
     }
 
@@ -299,6 +302,9 @@ class MythMainWindowPrivate
         // window aspect
     bool firstinit;
     bool m_bSavedPOS;
+    // Support for long press
+    int m_longPressKeyCode;
+    ulong m_longPressTime;
 };
 
 // Make keynum in QKeyEvent be equivalent to what's in QKeySequence
@@ -317,12 +323,17 @@ int MythMainWindowPrivate::TranslateKeyNum(QKeyEvent* e)
         // if modifiers have been pressed, rebuild keynum
         if ((modifiers = e->modifiers()) != Qt::NoModifier)
         {
-            int modnum = (((modifiers & Qt::ShiftModifier) &&
-                            (keynum > 0x7f) &&
-                            (keynum != Qt::Key_Backtab)) ? Qt::SHIFT : 0) |
-                         ((modifiers & Qt::ControlModifier) ? Qt::CTRL : 0) |
-                         ((modifiers & Qt::MetaModifier) ? Qt::META : 0) |
-                         ((modifiers & Qt::AltModifier) ? Qt::ALT : 0);
+            int modnum = Qt::NoModifier;
+            if ((modifiers & Qt::ShiftModifier) &&
+                (keynum > 0x7f) &&
+                (keynum != Qt::Key_Backtab))
+                modnum |= Qt::SHIFT;
+            if (modifiers & Qt::ControlModifier)
+                modnum |= Qt::CTRL;
+            if (modifiers & Qt::MetaModifier)
+                modnum |= Qt::META;
+            if (modifiers & Qt::AltModifier)
+                modnum |= Qt::ALT;
             modnum &= ~Qt::UNICODE_ACCEL;
             return (keynum |= modnum);
         }
@@ -1013,8 +1024,13 @@ bool MythMainWindow::event(QEvent *e)
     return QWidget::event(e);
 }
 
-void MythMainWindow::Init(QString forcedpainter)
+void MythMainWindow::Init(QString forcedpainter, bool mayReInit)
 {
+    d->m_useDB = ! gCoreContext->GetDB()->SuppressDBMessages();
+
+    if ( !(mayReInit || d->firstinit) )
+        return;
+
     GetMythUI()->GetScreenSettings(d->xbase, d->screenwidth, d->wmult,
                                    d->ybase, d->screenheight, d->hmult);
 
@@ -1083,12 +1099,6 @@ void MythMainWindow::Init(QString forcedpainter)
     setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     resize(d->screenwidth, d->screenheight);
 
-    GetMythUI()->ThemeWidget(this);
-#ifdef Q_OS_MAC
-    // QPalette inheritance appears broken on mac, so there's no point setting the palette
-    // to the top widget each time. Instead we apply the default palette to the whole application
-    qApp->setPalette(palette());
-#endif
     Show();
 
     if (!GetMythDB()->GetNumSetting("HideMouseCursor", 0))
@@ -1118,7 +1128,7 @@ void MythMainWindow::Init(QString forcedpainter)
     }
 
     QString painter = forcedpainter.isEmpty() ?
-        GetMythDB()->GetSetting("ThemePainter", QT_PAINTER) : forcedpainter;
+        GetMythDB()->GetSetting("ThemePainter", AUTO_PAINTER) : forcedpainter;
 #ifdef _WIN32
     if (painter == AUTO_PAINTER || painter == D3D9_PAINTER)
     {
@@ -1135,7 +1145,7 @@ void MythMainWindow::Init(QString forcedpainter)
                 "OpenGL not available. Falling back to Qt painter.");
     }
     else
-# if !defined USE_OPENGL_QT5 && QT_VERSION >= QT_VERSION_CHECK(5,0,0)
+# if !defined USE_OPENGL_QT5
     // On an EGLFS platform can't mix QWidget based MythMainWindow with a
     // QGLWidget based paintwin - MythPainterWindowGL ctor aborts:
     //   EGLFS: OpenGL windows cannot be mixed with others.
@@ -1148,14 +1158,8 @@ void MythMainWindow::Init(QString forcedpainter)
     }
     else
 # endif
-    if (
-#ifdef USE_OPENGL_QT5
-        // The Qt5 OpenGL painter doesn't render all screens correctly (yet)
-        // so only use OpenGL if explicitly requested
-#else
-        (painter == AUTO_PAINTER && (!d->painter && !d->paintwin)) ||
-#endif
-        painter.contains(OPENGL_PAINTER))
+    if ((!d->painter && !d->paintwin) &&
+        (painter == AUTO_PAINTER || painter.contains(OPENGL_PAINTER)))
     {
         MythRenderOpenGL *gl = MythRenderOpenGL::Create(painter);
         d->render = gl;
@@ -1205,12 +1209,16 @@ void MythMainWindow::Init(QString forcedpainter)
     d->paintwin->raise();
     ShowPainterWindow();
 
-# if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
     // Redraw the window now to avoid race conditions in EGLFS (Qt5.4) if a
     // 2nd window (e.g. TVPlayback) is created before this is redrawn.
-    if (qApp->platformName().contains("egl"))
-        qApp->processEvents();
+#ifdef ANDROID
+    LOG(VB_GENERAL, LOG_INFO, QString("Platform name is %1").arg(qApp->platformName()));
+#   define EARLY_SHOW_PLATFORM_NAME_CHECK "android"
+#else
+#   define EARLY_SHOW_PLATFORM_NAME_CHECK "egl"
 #endif
+    if (qApp->platformName().contains(EARLY_SHOW_PLATFORM_NAME_CHECK))
+        qApp->processEvents();
 
     if (!GetMythDB()->GetNumSetting("HideMouseCursor", 0))
         d->paintwin->setMouseTracking(true); // Required for mouse cursor auto-hide
@@ -1254,7 +1262,7 @@ void MythMainWindow::InitKeys()
     RegisterKey("Global", "ESCAPE", QT_TRANSLATE_NOOP("MythControls",
         "Escape"),                "Esc");
     RegisterKey("Global", "MENU", QT_TRANSLATE_NOOP("MythControls",
-        "Pop-up menu"),             "M");
+        "Pop-up menu"),             "M,Meta+Enter");
     RegisterKey("Global", "INFO", QT_TRANSLATE_NOOP("MythControls",
         "More information"),        "I");
     RegisterKey("Global", "DELETE", QT_TRANSLATE_NOOP("MythControls",
@@ -1384,6 +1392,14 @@ void MythMainWindow::InitKeys()
         "System Exit"),                     "");
     RegisterKey("Main Menu",    "STANDBYMODE",QT_TRANSLATE_NOOP("MythControls",
         "Enter Standby Mode"),              "");
+    RegisterKey("Long Press",    "LONGPRESS1",QT_TRANSLATE_NOOP("MythControls",
+        "Up to 16 Keys that allow Long Press"),      "");
+    RegisterKey("Long Press",    "LONGPRESS2",QT_TRANSLATE_NOOP("MythControls",
+        "Up to 16 Keys that allow Long Press"),      "");
+    RegisterKey("Long Press",    "LONGPRESS3",QT_TRANSLATE_NOOP("MythControls",
+        "Up to 16 Keys that allow Long Press"),      "");
+    RegisterKey("Long Press",    "LONGPRESS4",QT_TRANSLATE_NOOP("MythControls",
+        "Up to 16 Keys that allow Long Press"),      "");
 }
 
 void MythMainWindow::ReloadKeys()
@@ -1673,6 +1689,13 @@ void MythMainWindow::ExitToMainMenu(void)
                 QKeyEvent *key = new QKeyEvent(QEvent::KeyPress, d->escapekey,
                                                Qt::NoModifier);
                 QCoreApplication::postEvent(this, key);
+                MythNotificationCenter *nc =  MythNotificationCenter::GetInstance();
+                // Notifications have their own stack. We need to continue
+                // the propagation of the escape here if there are notifications.
+                int num = nc->DisplayedNotifications();
+                if (num > 0)
+                    QCoreApplication::postEvent(
+                        this, new QEvent(MythEvent::kExitToMainMenuEventType));
             }
             return;
         }
@@ -2153,6 +2176,100 @@ void MythMainWindow::mouseTimeout(void)
         QCoreApplication::postEvent(this, e);
 }
 
+// Return code = true to skip further processing, false to continue
+// sNewEvent: Caller must pass in a QScopedPointer that will be used
+// to delete a new event if one is created.
+bool MythMainWindow::keyLongPressFilter(QEvent **e,
+    QScopedPointer<QEvent> &sNewEvent)
+{
+    QEvent *newEvent = NULL;
+    QKeyEvent *ke = dynamic_cast<QKeyEvent*>(*e);
+    if (!ke)
+        return false;
+    int keycode = ke->key();
+
+    switch ((*e)->type())
+    {
+        case QEvent::KeyPress:
+        {
+            // Check if we are in the middle of a long press
+            if (keycode != 0 && keycode == d->m_longPressKeyCode)
+            {
+                if (ke->timestamp() - d->m_longPressTime < LONGPRESS_INTERVAL
+                    || d->m_longPressTime == 0)
+                {
+                    // waiting for release of key.
+                    return true; // discard the key press
+                }
+                else
+                {
+                    // expired log press - generate long key
+                    newEvent = new QKeyEvent(QEvent::KeyPress, keycode,
+                        ke->modifiers() | Qt::MetaModifier, ke->nativeScanCode(),
+                        ke->nativeVirtualKey(), ke->nativeModifiers(),
+                        ke->text(), false,1);
+                    *e = newEvent;
+                    sNewEvent.reset(newEvent);
+                    d->m_longPressTime = 0;   // indicate we have generated the long press
+                    return false;
+                }
+            }
+            d->m_longPressKeyCode = 0;
+            QStringList actions;
+            bool handled = TranslateKeyPress("Long Press",
+                               ke, actions,false);
+            if (handled)
+            {
+                // This shoudl never happen,, because we passed in false
+                // to say do not process jump points and yet it returned true
+                // to say it processed a jump point.
+                LOG(VB_GUI, LOG_ERR, QString("TranslateKeyPress Long Press Invalid Response"));
+                return true;
+            }
+            if (actions.size()>0 && actions[0].startsWith("LONGPRESS"))
+            {
+                // Beginning of a press
+                d->m_longPressKeyCode = keycode;
+                d->m_longPressTime = ke->timestamp();
+                return true; // discard the key press
+            }
+            break;
+        }
+        case QEvent::KeyRelease:
+        {
+            if (keycode != 0 && keycode == d->m_longPressKeyCode)
+            {
+                if (ke->isAutoRepeat())
+                    return true;
+                if (d->m_longPressTime > 0)
+                {
+                    // short press or non-repeating keyboard - generate key
+                    Qt::KeyboardModifiers modifier = Qt::NoModifier;
+                    if (ke->timestamp() - d->m_longPressTime >= LONGPRESS_INTERVAL)
+                        // non-repeatng keyboard
+                        modifier = Qt::MetaModifier;
+                    newEvent = new QKeyEvent(QEvent::KeyPress, keycode,
+                        ke->modifiers() | modifier, ke->nativeScanCode(),
+                        ke->nativeVirtualKey(), ke->nativeModifiers(),
+                        ke->text(), false,1);
+                    *e = newEvent;
+                    sNewEvent.reset(newEvent);
+                    d->m_longPressKeyCode = 0;
+                    return false;
+                }
+                else
+                {
+                    // end of long press
+                    d->m_longPressKeyCode = 0;
+                    return true;
+                }
+            }
+            break;
+        }
+    }
+    return false;
+}
+
 bool MythMainWindow::eventFilter(QObject *, QEvent *e)
 {
     MythGestureEvent *ge;
@@ -2160,6 +2277,10 @@ bool MythMainWindow::eventFilter(QObject *, QEvent *e)
     /* Don't let anything through if input is disallowed. */
     if (!d->AllowInput)
         return true;
+
+    QScopedPointer<QEvent> sNewEvent(NULL);
+    if (keyLongPressFilter(&e, sNewEvent))
+        return false;
 
     switch (e->type())
     {
@@ -2195,9 +2316,9 @@ bool MythMainWindow::eventFilter(QObject *, QEvent *e)
                         QCoreApplication::postEvent(this, key);
                     else
                         QCoreApplication::postEvent(key_target, key);
-                }
 
-                return true;
+                    return true;
+                }
             }
 #endif
 
@@ -2711,6 +2832,13 @@ void MythMainWindow::customEvent(QEvent *ce)
             MythNotificationCenter::GetInstance()->Queue(mn);
             return;
         }
+        else if (message == "RECONNECT_SUCCESS" && d->standby == true)
+        {
+            // If the connection to the master backend has just been (re-)established
+            // but we're in standby, make sure the backend is not blocked from
+            // shutting down.
+            gCoreContext->AllowShutdown();
+        }
     }
     else if ((MythEvent::Type)(ce->type()) == MythEvent::MythUserMessage)
     {
@@ -2999,6 +3127,17 @@ void MythMainWindow::EnterStandby(bool manual)
         GetMythDB()->GetSetting("menutheme", "defaultmenu"));
     state.insert("currentlocation", GetMythUI()->GetCurrentLocation());
     MythUIStateTracker::SetState(state);
+
+    // Cache WOL settings in case DB goes down
+    QString masterserver = gCoreContext->GetSetting
+                    ("MasterServerName");
+    gCoreContext->GetSettingOnHost
+                    ("BackendServerAddr", masterserver);
+    gCoreContext->GetMasterServerPort();
+    gCoreContext->GetSetting("WOLbackendCommand", "");
+
+    // While in standby do not attempt to wake the backend
+    gCoreContext->SetWOLAllowed(false);
 }
 
 void MythMainWindow::ExitStandby(bool manual)
@@ -3017,6 +3156,10 @@ void MythMainWindow::ExitStandby(bool manual)
     LOG(VB_GENERAL, LOG_NOTICE, "Leaving standby mode");
 
     d->standby = false;
+
+    // We may attempt to wake the backend
+    gCoreContext->SetWOLAllowed(true);
+
     gCoreContext->BlockShutdown();
 
     QVariantMap state;

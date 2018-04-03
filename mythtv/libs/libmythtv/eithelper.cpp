@@ -158,7 +158,7 @@ void EITHelper::AddEIT(uint atsc_major, uint atsc_minor,
 
         // Look to see if there has been a recent ett message with the same event id.
         EventIDToETT::iterator it = etts.find(eit->EventID(i));
-        QString ett_text = QString::null;
+        QString ett_text;
         bool found_matching_ett = false;
         if (it != etts.end())
         {
@@ -755,7 +755,11 @@ void EITHelper::AddEIT(const PremiereContentInformationTable *cit)
     uint version   = cit->Version();
     uint contentid = cit->ContentID();
     // fake endtime
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
     uint endtime   = MythDate::current().addDays(1).toTime_t();
+#else
+    uint endtime   = MythDate::current().addDays(1).toSecsSinceEpoch();
+#endif
 
     // Find Transmissions
     desc_list_t transmissions =
@@ -834,8 +838,13 @@ void EITHelper::CompleteEvent(uint atsc_major, uint atsc_minor,
     if (!chanid)
         return;
 
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
     QDateTime starttime = MythDate::fromTime_t(
         event.start_time + GPS_EPOCH + gps_offset);
+#else
+    QDateTime starttime = MythDate::fromSecsSinceEpoch(
+        event.start_time + GPS_EPOCH + gps_offset);
+#endif
 
     // fix starttime only if the duration is a multiple of a minute
     if (!(event.length % 60))
@@ -869,7 +878,7 @@ uint EITHelper::GetChanID(uint atsc_major, uint atsc_minor)
 
     ServiceToChanID::const_iterator it = srv_to_chanid.find(key);
     if (it != srv_to_chanid.end())
-        return max(*it, 0u);
+        return *it;
 
     uint chanid = get_chan_id_from_db_atsc(sourceid, atsc_major, atsc_minor);
     srv_to_chanid[key] = chanid;
@@ -887,7 +896,7 @@ uint EITHelper::GetChanID(uint serviceid, uint networkid, uint tsid)
 
     ServiceToChanID::const_iterator it = srv_to_chanid.find(key);
     if (it != srv_to_chanid.end())
-        return max(*it, 0u);
+        return *it;
 
     uint chanid = get_chan_id_from_db_dvb(sourceid, serviceid, networkid, tsid);
     srv_to_chanid[key] = chanid;
@@ -904,7 +913,7 @@ uint EITHelper::GetChanID(uint program_number)
 
     ServiceToChanID::const_iterator it = srv_to_chanid.find(key);
     if (it != srv_to_chanid.end())
-        return max(*it, 0u);
+        return *it;
 
     uint chanid = get_chan_id_from_db_dtv(sourceid, program_number, channelid);
     srv_to_chanid[key] = chanid;
@@ -1085,16 +1094,17 @@ static void init_fixup(FixupMap &fix)
        fix[ (long long)i << 32 | 2U << 16] = EITFixUp::kFixUK;
     fix[ 2059LL << 32 | 2U << 16] = EITFixUp::kFixUK;
     fix[ 2061LL << 32 | 2U << 16] = EITFixUp::kFixUK;
-    fix[ 2063LL << 32 | 2U << 16] = EITFixUp::kFixUK;
-    fix[ 2064LL << 32 | 2U << 16] = EITFixUp::kFixUK;
-    fix[ 2066LL << 32 | 2U << 16] = EITFixUp::kFixUK;
-    fix[ 2068LL << 32 | 2U << 16] = EITFixUp::kFixUK;
-    fix[ 2069LL << 32 | 2U << 16] = EITFixUp::kFixUK;
+    for (int i = 2063; i <= 2069; ++i)
+       fix[ (long long)i << 32 | 2U << 16] = EITFixUp::kFixUK;
+    fix[ 2071LL << 32 | 2U << 16] = EITFixUp::kFixUK;
     fix[ 2076LL << 32 | 2U << 16] = EITFixUp::kFixUK;
     fix[ 2081LL << 32 | 2U << 16] = EITFixUp::kFixUK;
-    fix[ 2089LL << 32 | 2U << 16] = EITFixUp::kFixUK;
-    fix[ 2096LL << 32 | 2U << 16] = EITFixUp::kFixUK | EITFixUp::kFixHTML;
-    fix[ 2107LL << 32 | 2U << 16] = EITFixUp::kFixUK;
+    for (int i = 2089; i <= 2092; ++i)
+       fix[ (long long)i << 32 | 2U << 16] = EITFixUp::kFixUK;
+    for (int i = 2094; i <= 2099; ++i)
+       fix[ (long long)i << 32 | 2U << 16] = EITFixUp::kFixUK;
+    for (int i = 2102; i <= 2110; ++i)
+       fix[ (long long)i << 32 | 2U << 16] = EITFixUp::kFixUK;
     fix[ 2112LL << 32 | 2U << 16] = EITFixUp::kFixUK;
     fix[ 2116LL << 32 | 2U << 16] = EITFixUp::kFixUK;
     fix[ 2301LL << 32 | 2U << 16] = EITFixUp::kFixUK | EITFixUp::kFixHTML;

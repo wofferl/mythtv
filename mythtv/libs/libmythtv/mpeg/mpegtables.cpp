@@ -501,7 +501,7 @@ void ProgramMapTable::AppendStream(
     SetTotalLength(_ptrs[StreamCount()] - pesdata());
 }
 
-/** \fn ProgramMapTable::IsVideo(uint,QString) const
+/**
  *  \brief Returns true iff the stream at index i is a video stream.
  *
  *   This of course returns true if StreamID::IsVideo() is true.
@@ -509,6 +509,7 @@ void ProgramMapTable::AppendStream(
  *   StreamID::Normalize() is used on the stream type.
  *
  *  \param i index of stream
+ *  \param sistandard standard to use in determining if this is a A/V stream
  */
 bool ProgramMapTable::IsVideo(uint i, QString sistandard) const
 {
@@ -522,7 +523,7 @@ bool ProgramMapTable::IsVideo(uint i, QString sistandard) const
     return StreamID::IsVideo(stream_id);
 }
 
-/** \fn ProgramMapTable::IsAudio(uint,QString) const
+/**
  *  \brief Returns true iff the stream at index i is an audio stream.
  *
  *   This of course returns true if StreamID::IsAudio() is true.
@@ -530,6 +531,7 @@ bool ProgramMapTable::IsVideo(uint i, QString sistandard) const
  *   StreamID::Normalize() is used on the stream type.
  *
  *  \param i index of stream
+ *  \param sistandard standard to use in determining if this is a A/V stream
  */
 bool ProgramMapTable::IsAudio(uint i, QString sistandard) const
 {
@@ -543,8 +545,9 @@ bool ProgramMapTable::IsAudio(uint i, QString sistandard) const
     return StreamID::IsAudio(stream_id);
 }
 
-/** \fn ProgramMapTable::IsEncrypted(QString sistandard) const
+/**
  *  \brief Returns true iff PMT contains CA descriptor for a vid/aud stream.
+ *  \param sistandard standard to use in determining if this is a A/V stream
  */
 bool ProgramMapTable::IsEncrypted(QString sistandard) const
 {
@@ -1115,7 +1118,7 @@ QString ProgramMapTable::GetLanguage(uint i) const
         list, DescriptorID::iso_639_language);
 
     if (!lang_desc)
-        return QString::null;
+        return QString();
 
     ISO639LanguageDescriptor iso_lang(lang_desc);
     return iso_lang.CanonicalLanguageString();
@@ -1257,7 +1260,7 @@ QString SpliceTimeView::toStringXML(
 
 /// \brief Returns decrypted version of this packet.
 SpliceInformationTable *SpliceInformationTable::GetDecrypted(
-    const QString &codeWord) const
+    const QString &/*codeWord*/) const
 {
     // TODO
     return NULL;
@@ -1399,9 +1402,10 @@ QString SpliceInformationTable::toString(int64_t first, int64_t last) const
         .arg(IsEncryptedPacket()?EncryptionAlgorithmString():"None")
         .arg(PTSAdjustment());
     str += IsEncryptedPacket() ? QString(" cw_index(%1)") : QString("");
-    str += QString(" command_len(%1) command_type(%2)")
+    str += QString(" command_len(%1) command_type(%2) scte_pid(0x%3)")
         .arg(SpliceCommandLength())
-        .arg(SpliceCommandTypeString());
+        .arg(SpliceCommandTypeString()
+        .arg(getSCTEPID(), 0, 16));
 
     if (IsEncryptedPacket())
         return str;
@@ -1466,13 +1470,14 @@ QString SpliceInformationTable::toStringXML(
 
     QString str = QString(
         "%1<SpliceInformationSection %2 encryption_algorithm=\"%3\" "
-        "pts_adjustment=\"%4\" code_word_index=\"%5\" command_type=\"%6\">\n")
+        "pts_adjustment=\"%4\" code_word_index=\"%5\" command_type=\"%6\" scte_pid=\"0x%7\" >\n")
         .arg(indent)
         .arg(cap_time)
         .arg(EncryptionAlgorithmString())
         .arg(PTSAdjustment())
         .arg(CodeWordIndex())
-        .arg(SpliceCommandTypeString());
+        .arg(SpliceCommandTypeString())
+        .arg(getSCTEPID(), 0 ,16);
 
     if (IsEncryptedPacket())
         return str + indent + "</SpliceInformationSection>";

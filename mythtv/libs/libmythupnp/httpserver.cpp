@@ -187,15 +187,15 @@ void HttpServer::LoadSSLConfig()
 #ifndef QT_NO_OPENSSL
     m_sslConfig = QSslConfiguration::defaultConfiguration();
 
-#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
     m_sslConfig.setProtocol(QSsl::SecureProtocols); // Includes SSLv3 which is insecure, but can't be helped
-#else
-    m_sslConfig.setProtocol(QSsl::TlsV1); // SSL v1, v2, v3 are insecure
-#endif
     m_sslConfig.setSslOption(QSsl::SslOptionDisableLegacyRenegotiation, true); // Potential DoS multiplier
     m_sslConfig.setSslOption(QSsl::SslOptionDisableCompression, true); // CRIME attack
 
+#if QT_VERSION < QT_VERSION_CHECK(5,5,0)
     QList<QSslCipher> availableCiphers = QSslSocket::supportedCiphers();
+#else
+    QList<QSslCipher> availableCiphers = QSslConfiguration::supportedCiphers();
+#endif
     QList<QSslCipher> secureCiphers;
     QList<QSslCipher>::iterator it;
     for (it = availableCiphers.begin(); it != availableCiphers.end(); ++it)
@@ -488,7 +488,8 @@ void HttpWorker::run(void)
 
 #ifndef QT_NO_OPENSSL
         QSslSocket *pSslSocket = new QSslSocket();
-        if (pSslSocket->setSocketDescriptor(m_socket))
+        if (pSslSocket->setSocketDescriptor(m_socket)
+           && gCoreContext->CheckSubnet(pSslSocket))
         {
             pSslSocket->setSslConfiguration(m_sslConfig);
             pSslSocket->startServerEncryption();
@@ -523,6 +524,13 @@ void HttpWorker::run(void)
     {
         pSocket = new QTcpSocket();
         pSocket->setSocketDescriptor(m_socket);
+        if (!gCoreContext->CheckSubnet(pSocket))
+        {
+            delete pSocket;
+            pSocket = 0;
+            return;
+        }
+
     }
 
     pSocket->setSocketOption(QAbstractSocket::KeepAliveOption, QVariant(1));

@@ -2,7 +2,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 // Qt
 #include <QApplication>
@@ -46,6 +47,10 @@ int main(int argc, char **argv)
 {
     bool bShowSettings = false;
 
+#if CONFIG_OMX_RPI
+    setenv("QT_XCB_GL_INTEGRATION","none",0);
+#endif
+
     MythWelcomeCommandLineParser cmdline;
     if (!cmdline.Parse(argc, argv))
     {
@@ -86,7 +91,7 @@ int main(int argc, char **argv)
     SignalHandler::SetHandler(SIGHUP, logSigHup);
 #endif
 
-    gContext = new MythContext(MYTH_BINARY_VERSION);
+    gContext = new MythContext(MYTH_BINARY_VERSION, true);
     if (!gContext->Init())
     {
         LOG(VB_GENERAL, LOG_ERR,
@@ -142,7 +147,7 @@ int main(int argc, char **argv)
         do
         {
             qApp->processEvents();
-            usleep(5000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         } while (mainStack->TotalScreens() > 0);
     }
 

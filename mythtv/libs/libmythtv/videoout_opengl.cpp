@@ -105,9 +105,12 @@ bool VideoOutputOpenGL::CreateCPUResources(void)
 bool VideoOutputOpenGL::CreateGPUResources(void)
 {
     bool result = SetupContext();
-    QSize size = window.GetActualVideoDim();
-    InitDisplayMeasurements(size.width(), size.height(), false);
-    CreatePainter();
+    if (result)
+    {
+        QSize size = window.GetActualVideoDim();
+        InitDisplayMeasurements(size.width(), size.height(), false);
+        CreatePainter();
+    }
     return result;
 }
 
@@ -152,7 +155,15 @@ void VideoOutputOpenGL::DestroyGPUResources(void)
 #endif
 
     if (gl_created_painter)
-        delete gl_painter;
+    {
+        // Hack to ensure that the osd painter is not
+        // deleted while image load thread is still busy
+        // loading images with that painter
+        gl_painter->Teardown();
+        if (invalid_osd_painter)
+            delete invalid_osd_painter;
+        invalid_osd_painter = gl_painter;
+    }
     else if (gl_painter)
         gl_painter->SetSwapControl(true);
 
@@ -236,7 +247,7 @@ bool VideoOutputOpenGL::InputChanged(const QSize &video_dim_buf,
                                      const QSize &video_dim_disp,
                                      float        aspect,
                                      MythCodecID  av_codec_id,
-                                     void        *codec_private,
+                                     void        */*codec_private*/,
                                      bool        &aspect_only)
 {
     LOG(VB_PLAYBACK, LOG_INFO, LOC + QString("InputChanged(%1,%2,%3) %4->%5")
@@ -328,6 +339,14 @@ bool VideoOutputOpenGL::SetupContext(void)
         return true;
     }
 
+    // This code does not work.
+    // Using OpenGL video renderer with QT Theme painter - the moment
+    // the code below calls gl_context->create() the main window disappears
+    // and after that the video renderer complains about rendering on a non
+    // visible window. The window never comes back and you have to kill
+    // the frontend.
+
+/*
     QWidget *device = QWidget::find(gl_parent_win);
     if (!device)
     {
@@ -347,6 +366,8 @@ bool VideoOutputOpenGL::SetupContext(void)
     if (gl_context)
         gl_context->DecrRef();
     gl_context = NULL;
+*/
+    LOG(VB_GENERAL, LOG_ERR, LOC + "Unable to use OpenGL when ThemePainter is set to QT.");
     return false;
 }
 
@@ -355,7 +376,24 @@ bool VideoOutputOpenGL::SetupOpenGL(void)
     if (!gl_context)
         return false;
 
-    const QRect dvr = window.GetDisplayVisibleRect();
+    QRect dvr = window.GetDisplayVisibleRect();
+
+    MythMainWindow *mainWin = GetMythMainWindow();
+    QSize mainSize = mainWin->size();
+
+    // If the Video screen mode has vertically less pixels
+    // than the GUI screen mode - OpenGL coordinate adjustments
+    // must be made to put the video at the top of the display 
+    // area instead of at the bottom.
+    if (dvr.height() < mainSize.height())
+        dvr.setTop(dvr.top()-mainSize.height()+dvr.height());
+
+    // If the Video screen mode has horizontally less pixels
+    // than the GUI screen mode - OpenGL width must be set
+    // as the higher GUI width so that the Program Guide
+    // invoked from playback is not cut off.
+    if (dvr.width() < mainSize.width())
+        dvr.setWidth(mainSize.width());
 
     if (video_codec_id == kCodec_NONE)
     {
@@ -462,7 +500,7 @@ bool VideoOutputOpenGL::CreatePauseFrame(void)
     return true;
 }
 
-void VideoOutputOpenGL::ProcessFrame(VideoFrame *frame, OSD *osd,
+void VideoOutputOpenGL::ProcessFrame(VideoFrame *frame, OSD */*osd*/,
                                      FilterChain *filterList,
                                      const PIPMap &pipPlayers,
                                      FrameScanType scan)
@@ -673,7 +711,7 @@ void VideoOutputOpenGL::PrepareFrame(VideoFrame *buffer, FrameScanType t,
         vbuffers.SetLastShownFrameToScratch();
 }
 
-void VideoOutputOpenGL::Show(FrameScanType scan)
+void VideoOutputOpenGL::Show(FrameScanType /*scan*/)
 {
     OpenGLLocker ctx_lock(gl_context);
     if (IsErrored())
@@ -767,7 +805,7 @@ bool VideoOutputOpenGL::SetupDeinterlace(
     if (!m_deintfiltername.contains("opengl"))
     {
         gl_videochain->SetDeinterlacing(false);
-        gl_videochain->SetSoftwareDeinterlacer(QString::null);
+        gl_videochain->SetSoftwareDeinterlacer(QString());
         VideoOutput::SetupDeinterlace(interlaced, overridefilter);
         if (m_deinterlacing)
             gl_videochain->SetSoftwareDeinterlacer(m_deintfiltername);
@@ -852,7 +890,7 @@ bool VideoOutputOpenGL::SetDeinterlacingEnabled(bool enable)
     return m_deinterlacing;
 }
 
-void VideoOutputOpenGL::ShowPIP(VideoFrame  *frame,
+void VideoOutputOpenGL::ShowPIP(VideoFrame  */*frame*/,
                                 MythPlayer  *pipplayer,
                                 PIPLocation  loc)
 {
@@ -1008,14 +1046,14 @@ MythPainter *VideoOutputOpenGL::GetOSDPainter(void)
 }
 
 // virtual
-bool VideoOutputOpenGL::CanVisualise(AudioPlayer *audio, MythRender *render)
+bool VideoOutputOpenGL::CanVisualise(AudioPlayer *audio, MythRender */*render*/)
 {
     return VideoOutput::CanVisualise(audio, gl_context);
 }
 
 // virtual
 bool VideoOutputOpenGL::SetupVisualisation(AudioPlayer *audio,
-                                MythRender *render, const QString &name)
+                                MythRender */*render*/, const QString &name)
 {
     return VideoOutput::SetupVisualisation(audio, gl_context, name);
 }

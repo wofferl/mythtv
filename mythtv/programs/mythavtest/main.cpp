@@ -146,6 +146,11 @@ class VideoPerformanceTest
 
 int main(int argc, char *argv[])
 {
+
+#if CONFIG_OMX_RPI
+    setenv("QT_XCB_GL_INTEGRATION","none",0);
+#endif
+
     MythAVTestCommandLineParser cmdline;
     if (!cmdline.Parse(argc, argv))
     {
@@ -188,7 +193,7 @@ int main(int argc, char *argv[])
     else if (cmdline.GetArgs().size() >= 1)
         filename = cmdline.GetArgs()[0];
 
-    gContext = new MythContext(MYTH_BINARY_VERSION);
+    gContext = new MythContext(MYTH_BINARY_VERSION, true);
     if (!gContext->Init())
     {
         LOG(VB_GENERAL, LOG_ERR, "Failed to init MythContext, exiting.");
@@ -201,14 +206,11 @@ int main(int argc, char *argv[])
     qApp->setSetuidAllowed(true);
 #endif
 
-#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
     // If Qt graphics platform is egl (Raspberry Pi) then setuid hangs
     LOG(VB_GENERAL, LOG_NOTICE, "QT_QPA_PLATFORM=" + qApp->platformName());
     if (qApp->platformName().contains("egl"))
       ;
-    else
-#endif
-    if (setuid(getuid()) != 0)
+    else if (setuid(getuid()) != 0)
     {
         LOG(VB_GENERAL, LOG_ERR, "Failed to setuid(), exiting.");
         return GENERIC_EXIT_NOT_OK;

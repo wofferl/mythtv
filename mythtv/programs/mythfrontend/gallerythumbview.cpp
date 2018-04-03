@@ -1,8 +1,11 @@
 #include "gallerythumbview.h"
 
-#include <unistd.h> // for usleep
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 #include <QApplication>
+
+#include "compat.h"
 
 #include "mythuitext.h"
 #include "mythprogressdialog.h"
@@ -49,7 +52,7 @@ private:
 //! Worker thread for copying/moving files
 class TransferThread : public MThread
 {
-    Q_DECLARE_TR_FUNCTIONS(FileTransferWorker)
+    Q_DECLARE_TR_FUNCTIONS(FileTransferWorker);
 public:
     typedef QMap<ImagePtrK, QString> TransferMap;
     typedef QSet<ImagePtrK> ImageSet;
@@ -134,7 +137,7 @@ static void WaitUntilDone(MThread &worker)
     worker.start();
     while (!worker.isFinished())
     {
-        usleep(1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
         qApp->processEvents();
     }
 }
@@ -293,6 +296,19 @@ bool GalleryThumbView::keyPressEvent(QKeyEvent *event)
             FlipHorizontal();
         else if (action == "FLIPVERTICAL")
             FlipVertical();
+        else if (action == "COVER")
+        {
+            ImagePtrK im = m_view->GetSelected();
+            if (m_editsAllowed && im)
+            {
+                if (im == m_view->GetParent())
+                    // Reset dir
+                    m_mgr.SetCover(im->m_id, 0);
+                else
+                    // Set parent cover
+                    m_mgr.SetCover(im->m_parentId, im->m_id);
+            }
+        }
         else if (action == "PLAY")
             Slideshow();
         else if (action == "RECURSIVESHOW")
@@ -543,7 +559,8 @@ void GalleryThumbView::customEvent(QEvent *event)
 
 /*!
  \brief Cleanup UI & image caches when a device is removed
- \param prefixes List of url prefixes to remove from image cache
+ \param ids List of ids to remove from image cache
+ \param deleted If true, images are also deleted from view
 */
 void GalleryThumbView::RemoveImages(const QStringList &ids, bool deleted)
 {
@@ -602,7 +619,10 @@ void GalleryThumbView::LoadData(int parent)
     {
         m_imageList->SetVisible(true);
         if (m_emptyText)
+        {
             m_emptyText->SetVisible(false);
+            m_emptyText->Reset();
+        }
 
         // Construct the buttonlist
         BuildImageList();
@@ -845,9 +865,15 @@ void GalleryThumbView::UpdateScanProgress(const QString &scanner,
         if (m_scanActive.isEmpty())
         {
             if (m_scanProgressText)
+            {
                 m_scanProgressText->SetVisible(false);
+                m_scanProgressText->Reset();
+            }
             if (m_scanProgressBar)
+            {
                 m_scanProgressBar->SetVisible(false);
+                m_scanProgressBar->Reset();
+            }
 
             m_scanProgress.clear();
 
@@ -941,7 +967,9 @@ void GalleryThumbView::SetUiSelection(MythUIButtonListItem *item)
             QStringList text;
             if (im->m_id != GALLERY_DB_ID)
             {
-                text << m_mgr.LongDateOf(im);
+                if (im->IsFile() || im->IsDevice())
+                    text << m_mgr.LongDateOf(im);
+
                 if (!im->m_comment.isEmpty())
                     text << im->m_comment;
             }

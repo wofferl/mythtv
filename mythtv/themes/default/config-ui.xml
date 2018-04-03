@@ -384,7 +384,7 @@
         </buttonlist>
 
         <textarea name="helptext" from="basetextarea">
-            <area>200,470,400,60</area>
+            <area>200,85%,400,60</area>
             <align>allcenter</align>
             <multiline>true</multiline>
         </textarea>
@@ -808,7 +808,7 @@
         </buttonlist>
 
         <textarea name="helptext" from="basetextarea">
-            <area>200,530,400,60</area>
+            <area>200,465,400,60</area>
             <align>allcenter</align>
             <multiline>true</multiline>
         </textarea>
@@ -830,4 +830,254 @@
 
     </window>
 
+    <!-- To allow for different size themes, use percentages -->
+    <window name="guistartup">
+
+        <textarea name="label">
+            <font>baselarge</font>
+            <area>5%,3%,90%,5%</area>
+            <value>MythTV Startup Status</value>
+            <align>allcenter</align>
+        </textarea>
+
+        <statetype name="statusstate">
+            <area>5%,20%,90%,10%</area>
+            <state name="start">
+                <area>0,0,100%,100%</area>
+                <textarea name="status">
+                    <area>0,0,100%,100%</area>
+                    <font>basemedium</font>
+                    <align>allcenter</align>
+                    <value>Waking up Database Machine.</value>
+                    <multiline>true</multiline>
+                </textarea>
+            </state>
+            <state name="startFail" from="start">
+                <textarea name="status">
+                    <value>Database machine failed to wake up.</value>
+                </textarea>
+            </state>
+            <state name="dbAwake" from="start">
+                <textarea name="status">
+                    <value>Waiting for Database to start.</value>
+                </textarea>
+            </state>
+            <state name="dbAwakeFail" from="start">
+                <textarea name="status">
+                    <value>Database failed to start.</value>
+                </textarea>
+            </state>
+            <state name="dbStarted" from="start">
+                <textarea name="status">
+                    <value>Attempting to connect to Database.</value>
+                </textarea>
+            </state>
+            <state name="dbStartedFail" from="start">
+                <textarea name="status">
+                    <value>Unable to connect to Database.</value>
+                </textarea>
+            </state>
+            <state name="beWOL" from="start">
+                <textarea name="status">
+                    <value>Attempting to wake master backend.</value>
+                </textarea>
+            </state>
+            <state name="beWOLFail" from="start">
+                <textarea name="status">
+                    <value>Master backend failed to wake.</value>
+                </textarea>
+            </state>
+            <state name="beAwake" from="start">
+                <textarea name="status">
+                    <value>Attempting to connect to master backend.</value>
+                </textarea>
+            </state>
+            <state name="beAwakeFail" from="start">
+                <textarea name="status">
+                    <value>Unable to connect to master backend.</value>
+                </textarea>
+            </state>
+        </statetype>
+
+        <statetype name="messagestate">
+            <area>5%,40%,90%,15%</area>
+            <state name="makeselection">
+                <area>0,0,100%,100%</area>
+                <textarea name="message">
+                    <area>0,0,100%,100%</area>
+                    <font>basemedium</font>
+                    <align>allcenter</align>
+                    <value>Select an option below.</value>
+                    <multiline>true</multiline>
+                </textarea>
+            </state>
+            <state name="empty" from="makeselection">
+                <textarea name="message">
+                    <value></value>
+                </textarea>
+            </state>
+        </statetype>
+
+        <progressbar name="progress" from="baseprogressbar">
+            <area>15%,60%,80%,10%</area>
+            <imagetype name="background">
+                <area>0,0,100%,100%</area>
+                <preserveaspect>false</preserveaspect>
+            </imagetype>
+            <imagetype name="progressimage">
+                <area>0,0,100%,100%</area>
+                <preserveaspect>false</preserveaspect>
+            </imagetype>
+        </progressbar>
+
+        <textarea name="helptext" from="basetextarea">
+            <area>5%,80%,90%,20%</area>
+            <align>allcenter</align>
+            <multiline>true</multiline>
+        </textarea>
+
+        <button name="dummy" from="basebutton">
+            <area>0%,80%,0,0</area>
+            <value></value>
+            <helptext></helptext>
+        </button>
+
+        <button name="retry" from="basebutton">
+            <position>5%,88%</position>
+            <value>Retry</value>
+            <helptext>Try again to establish connections.</helptext>
+        </button>
+
+        <button name="search" from="retry">
+            <position>28%,88%</position>
+            <value>Search</value>
+            <helptext>Search the local network for the MythTV Backend.</helptext>
+        </button>
+
+        <button name="setup" from="retry">
+            <position>52%,88%</position>
+            <value>Setup</value>
+            <helptext>Use Database setup to enter database parameters.</helptext>
+        </button>
+
+        <button name="exit" from="retry">
+            <position>75%,88%</position>
+            <value>Exit</value>
+            <helptext>Exit from MythTV.</helptext>
+        </button>
+
+    </window>
+
+    <window name="channelscanner">
+        <textarea name="title" from="basetextarea">
+            <area>0,30,100%,50</area>
+            <font>baselarge</font>
+            <align>allcenter</align>
+            <case>upper</case>
+            <value>Scanning</value>
+        </textarea>
+
+        <shape name="background">
+            <area>20,70,-20,-20</area>
+            <type>roundbox</type>
+            <cornerradius>10</cornerradius>
+            <fill color="#000000" alpha="30" />
+        </shape>
+
+        <textarea name="status">
+            <area>25,80,40%,40</area>
+            <font>basesmall</font>
+            <align>left,vcenter</align>
+            <template>Status: %1</template>
+        </textarea>
+
+        <textarea name="scanprogresstext">
+            <area>50%,80,92%,30</area>
+            <font>basesmall</font>
+            <align>right,vcenter</align>
+        </textarea>
+
+        <textarea name="signallock" from="status">
+            <area>25,120,32%,40</area>
+            <template>Lock: %1</template>
+        </textarea>
+
+        <textarea name="progress_label">
+            <area>25,190,200,30</area>
+            <font>basesmall</font>
+            <align>left,vcenter</align>
+            <value>Scan Progress</value>
+        </textarea>
+        <textarea name="progresstext">
+            <area>230,190,49%,30</area>
+            <font>basesmall</font>
+            <align>left,vcenter</align>
+        </textarea>
+        <progressbar name="scanprogress" from="smallprogressbar">
+            <position>30,225</position>
+        </progressbar>
+
+        <group name="noisegroup" depends="signalnoise">
+            <area>25,300,49%,200</area>
+            <textarea name="signalnoise_label">
+                <area>0,0,100%,30</area>
+                <align>left,vcenter</align>
+                <font>basesmall</font>
+                <value>Signal/Noise</value>
+            </textarea>
+            <textarea name="signalnoisetext">
+                <area>205,0,100%,30</area>
+                <font>basesmall</font>
+                <align>left,vcenter</align>
+            </textarea>
+            <progressbar name="signalnoise" from="smallprogressbar">
+                <position>5,35</position>
+            </progressbar>
+        </group>
+
+        <group name="strengthgroup" depends="signalstrength">
+            <area>25,400,49%,200</area>
+            <textarea name="signalstrength_label">
+                <area>0,0,100%,30</area>
+                <align>left,vcenter</align>
+                <font>basesmall</font>
+                <value>Signal Strength</value>
+            </textarea>
+            <textarea name="signalstrengthtext">
+                <area>205,0,100%,30</area>
+                <font>basesmall</font>
+                <align>left,vcenter</align>
+            </textarea>
+            <progressbar name="signalstrength" from="smallprogressbar">
+                <position>5,35</position>
+            </progressbar>
+        </group>
+
+        <group name="rotatorgroup" depends="rotorprogress">
+            <area>25,500,49%,200</area>
+            <textarea name="rotorprogress_label">
+                <area>0,0,100%,30</area>
+                <align>left,vcenter</align>
+                <font>basesmall</font>
+                <value>Rotor Movement</value>
+            </textarea>
+            <textarea name="rotatorprogresstext">
+                <area>205,0,100%,30</area>
+                <font>basesmall</font>
+                <align>left,vcenter</align>
+            </textarea>
+            <progressbar name="rotorprogress" from="smallprogressbar">
+                <position>5,35</position>
+            </progressbar>
+        </group>
+
+        <buttonlist name="log" from="basebuttonlist">
+            <area>50%,19%,92%,79%</area>
+        </buttonlist>
+
+        <button name="exit" from="basebutton">
+            <position>100%-208,100%-62</position>
+            <value>Exit</value>
+        </button>
+    </window>
 </mythuitheme>

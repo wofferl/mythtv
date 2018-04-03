@@ -40,7 +40,7 @@ class MUI_PUBLIC MythMainWindow : public QWidget
   public:
     enum {drawRefresh = 70};
 
-    void Init(QString forcedpainter = QString());
+    void Init(QString forcedpainter = QString(), bool mayReInit=true);
     void ReinitDone(void);
     void Show(void);
 
@@ -54,6 +54,8 @@ class MUI_PUBLIC MythMainWindow : public QWidget
     bool TranslateKeyPress(const QString &context, QKeyEvent *e,
                            QStringList &actions, bool allowJumps = true)
                            MUNUSED_RESULT;
+    bool keyLongPressFilter(QEvent **e,
+        QScopedPointer<QEvent> &sNewEvent);
 
     void ReloadKeys(void);
     void ClearKey(const QString &context, const QString &action);

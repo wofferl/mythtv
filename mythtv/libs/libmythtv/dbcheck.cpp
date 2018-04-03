@@ -3299,6 +3299,123 @@ NULL
             return false;
     }
 
+    if (dbver == "1344")
+    {
+        const char *updates[] = {
+            "ALTER TABLE capturecard ADD COLUMN "
+            "    reclimit INT UNSIGNED DEFAULT 1 NOT NULL",
+            "UPDATE capturecard cc, "
+            "       ( SELECT IF(parentid>0, parentid, cardid) cardid, "
+            "                count(*) cnt "
+            "         FROM capturecard "
+            "         GROUP BY if(parentid>0, parentid, cardid) "
+            "       ) p "
+            "SET cc.reclimit = p.cnt "
+            "WHERE cc.cardid = p.cardid OR cc.parentid = p.cardid",
+            NULL
+        };
+
+        if (!performActualUpdate(&updates[0], "1345", dbver))
+            return false;
+    }
+
+    if (dbver == "1345")
+    {
+        const char *updates[] = {
+            "ALTER TABLE capturecard ADD COLUMN "
+            "    schedgroup TINYINT(1) DEFAULT 0 NOT NULL",
+            NULL
+        };
+
+        if (!performActualUpdate(&updates[0], "1346", dbver))
+            return false;
+    }
+
+    /*
+     * TODO the following settings are no more, clean them up with the next schema change
+     * to avoid confusion by stale settings in the database
+     *
+     * WatchTVGuide
+     */
+
+    if (dbver == "1346")
+    {
+        QString master;
+        // Create new MasterServerName setting
+        if (gCoreContext->IsMasterHost())
+            master =
+            "insert into settings (value,data,hostname) "
+            "values('MasterServerName','"
+                + gCoreContext->GetHostName() + "', null);";
+        else
+            master =
+            "insert into settings (value,data,hostname) "
+            "select 'MasterServerName', b.hostname, null "
+            "from settings a, settings b "
+            "where a.value = 'MasterServerIP' "
+            "and b.value in ('BackendServerIP','BackendServerIP6')"
+            "and a.data = b.data;";
+
+        const char *updates[] = {
+            // Create new MasterServerName setting
+            master.toLocal8Bit().constData(),
+            // Create new BackendServerAddr setting for each backend server
+            // Assume using IPV4 value.
+            "insert into settings (value,data,hostname) "
+                "select 'BackendServerAddr', data,hostname from settings "
+                "where value = 'BackendServerIP';",
+            // Update BackendServerAddr setting for cases where IPV6 is used
+            "update settings a, settings b "
+                "set b.data = a.data "
+                "where a.value = 'BackendServerIP6' "
+                "and b.hostname = a.hostname "
+                "and b.value = 'BackendServerAddr' "
+                "and b.data = '127.0.0.1' "
+                "and a.data != '::1' "
+                "and a.data is not null "
+                "and a.data != ''; ",
+            // Update BackendServerAddr setting for master backend to
+            // conform to MasterServerIP setting
+            "update settings a, settings b, settings c "
+                "set c.data = a.data "
+                "where a.value = 'MasterServerIP' "  // 1 row
+                "and b.value = 'MasterServerName' "  // 1 row
+                "and c.value = 'BackendServerAddr' " // 1 row per BE
+                "and c.hostname = b.data;",          // restrict to master
+            // Delete obsolete settings
+            "delete from settings "
+                "where value in ('WatchTVGuide');",
+            NULL
+        };
+
+        if (!performActualUpdate(&updates[0], "1347", dbver))
+            return false;
+    }
+
+    if (dbver == "1347")
+    {
+        const char *updates[] = {
+            "ALTER TABLE record MODIFY COLUMN startdate DATE DEFAULT NULL",
+            "ALTER TABLE record MODIFY COLUMN enddate DATE DEFAULT NULL",
+            "ALTER TABLE record MODIFY COLUMN starttime TIME DEFAULT NULL",
+            "ALTER TABLE record MODIFY COLUMN endtime TIME DEFAULT NULL",
+            NULL
+        };
+        if (!performActualUpdate(updates, "1348", dbver))
+            return false;
+    }
+    /*
+     * TODO when consolidating database version 1348 into initialize, you can delete
+     * from mythtv/libs/libmythtv/tv_play.cpp the upgrade code in the lines
+     * preceding REG_KEY for ACTION_SETBOOKMARK and ACTION_TOGGLEBOOKMARK
+     */
+
+    /*
+     * TODO the following settings are no more, clean them up with the next schema change
+     * to avoid confusion by stale settings in the database
+     *
+     * AltClearSavedPosition
+     */
     return true;
 }
 

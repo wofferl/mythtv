@@ -1,22 +1,16 @@
 include ( ../../../../settings.pro )
 
-QT += xml sql network
-
-contains(QT_VERSION, ^4\\.[0-9]\\..*) {
-CONFIG += qtestlib
-}
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += testlib
-}
+QT += xml sql network testlib
 
 TEMPLATE = app
 TARGET = test_mpegtables
 DEPENDPATH += . ../..
 INCLUDEPATH += . ../.. ../../mpeg ../../../libmythui ../../../libmyth ../../../libmythbase
+INCLUDEPATH += ../../../libmythservicecontracts
 
-LIBS += ../../dvbdescriptors.o
-LIBS += ../../iso6937tables.o
-LIBS += ../../freesat_huffman.o
+LIBS += ../../$(OBJECTS_DIR)/dvbdescriptors.o
+LIBS += ../../$(OBJECTS_DIR)/iso6937tables.o
+LIBS += ../../$(OBJECTS_DIR)/freesat_huffman.o
 
 LIBS += -L../../../libmythbase -lmythbase-$$LIBVERSION
 LIBS += -L../../../libmythui -lmythui-$$LIBVERSION
@@ -28,6 +22,8 @@ LIBS += -L../../../../external/FFmpeg/libavutil -lmythavutil
 LIBS += -L../../../../external/FFmpeg/libavcodec -lmythavcodec
 LIBS += -L../../../../external/FFmpeg/libswscale -lmythswscale
 LIBS += -L../../../../external/FFmpeg/libavformat -lmythavformat
+LIBS += -L../../../../external/FFmpeg/libavfilter -lmythavfilter
+LIBS += -L../../../../external/FFmpeg/libpostproc -lmythpostproc
 using_mheg:LIBS += -L../../../libmythfreemheg -lmythfreemheg-$$LIBVERSION
 using_hdhomerun:LIBS += -L../../../../external/libhdhomerun -lmythhdhomerun-$$LIBVERSION
 LIBS += -L../.. -lmythtv-$$LIBVERSION
@@ -65,6 +61,9 @@ HEADERS += test_mpegtables.h
 SOURCES += specimen.cpp test_mpegtables.cpp
 
 QMAKE_CLEAN += $(TARGET) $(TARGETA) $(TARGETD) $(TARGET0) $(TARGET1) $(TARGET2)
-QMAKE_CLEAN += ; rm -f *.gcov *.gcda *.gcno
+QMAKE_CLEAN += ; ( cd $(OBJECTS_DIR) && rm -f *.gcov *.gcda *.gcno )
 
 LIBS += $$EXTRA_LIBS $$LATE_LIBS
+
+# Fix runtime linking on Ubuntu 17.10.
+linux:QMAKE_LFLAGS += -Wl,--disable-new-dtags

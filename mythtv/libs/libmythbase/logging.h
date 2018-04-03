@@ -33,6 +33,10 @@ namespace nzmqt {
     class ZMQContext;
 }
 
+#if CONFIG_SYSTEMD_JOURNAL
+#define SYSTEMD_JOURNAL_FACILITY -99
+#endif
+
 #define LOGLINE_MAX (2048-120)
 
 class QString;
@@ -224,7 +228,7 @@ class LoggerThread : public QObject, public MThread
     void pingLogServer(void);
 
   protected slots:
-    void messageReceived(const QList<QByteArray>&);
+    void messageReceived(const QList<QByteArray> &msg);
     void checkHeartBeat(void);
     void initialTimeout(void);
 };

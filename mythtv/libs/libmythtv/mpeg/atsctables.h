@@ -79,7 +79,7 @@ class MTV_PUBLIC MasterGuideTable : public PSIPTable
         assert(TableID::MGT == TableID());
         Parse();
     }
-    MasterGuideTable(const PSIPTable& table) : PSIPTable(table)
+    explicit MasterGuideTable(const PSIPTable& table) : PSIPTable(table)
     {
         assert(TableID::MGT == TableID());
         Parse();
@@ -194,7 +194,7 @@ class MTV_PUBLIC VirtualChannelTable : public PSIPTable
         assert(TableID::TVCT == TableID() || TableID::CVCT == TableID());
         Parse();
     }
-    VirtualChannelTable(const PSIPTable &table) : PSIPTable(table)
+    explicit VirtualChannelTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::TVCT == TableID() || TableID::CVCT == TableID());
         Parse();
@@ -225,7 +225,7 @@ class MTV_PUBLIC VirtualChannelTable : public PSIPTable
     const QString ShortChannelName(uint i) const
     {
         if (i >= ChannelCount())
-            return QString::null;
+            return QString();
 
         QString str;
         const unsigned short* ustr =
@@ -351,7 +351,7 @@ class MTV_PUBLIC TerrestrialVirtualChannelTable : public VirtualChannelTable
     {
         assert(TableID::TVCT == TableID());
     }
-    TerrestrialVirtualChannelTable(const PSIPTable &table)
+    explicit TerrestrialVirtualChannelTable(const PSIPTable &table)
         : VirtualChannelTable(table)
     {
         assert(TableID::TVCT == TableID());
@@ -420,7 +420,7 @@ class MTV_PUBLIC CableVirtualChannelTable : public VirtualChannelTable
     {
         assert(TableID::CVCT == TableID());
     }
-    CableVirtualChannelTable(const PSIPTable &table)
+    explicit CableVirtualChannelTable(const PSIPTable &table)
         : VirtualChannelTable(table)
     {
         assert(TableID::CVCT == TableID());
@@ -527,7 +527,7 @@ class MTV_PUBLIC EventInformationTable : public PSIPTable
         assert(TableID::EIT == TableID());
         Parse();
     }
-    EventInformationTable(const PSIPTable &table) : PSIPTable(table)
+    explicit EventInformationTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::EIT == TableID());
         Parse();
@@ -568,7 +568,11 @@ class MTV_PUBLIC EventInformationTable : public PSIPTable
     QDateTime StartTimeGPS(uint i) const
     {
         // Time in GPS seconds since 00:00:00 on January 6th, 1980 UTC
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
         return MythDate::fromTime_t(GPS_EPOCH + StartTimeRaw(i));
+#else
+        return MythDate::fromSecsSinceEpoch(GPS_EPOCH + StartTimeRaw(i));
+#endif
     }
     //   reserved               2   6.0    3
     //   ETM_location           2   6.2
@@ -625,7 +629,7 @@ class MTV_PUBLIC ExtendedTextTable : public PSIPTable
     {
         assert(TableID::ETT == TableID());
     }
-    ExtendedTextTable(const PSIPTable &table) : PSIPTable(table)
+    explicit ExtendedTextTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::ETT == TableID());
     }
@@ -683,7 +687,7 @@ class MTV_PUBLIC SystemTimeTable : public PSIPTable
     {
         assert(TableID::STT == TableID());
     }
-    SystemTimeTable(const PSIPTable &table) : PSIPTable(table)
+    explicit SystemTimeTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::STT == TableID());
     }
@@ -710,7 +714,11 @@ class MTV_PUBLIC SystemTimeTable : public PSIPTable
     }
     QDateTime SystemTimeGPS(void) const
     {
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
         return MythDate::fromTime_t(GPS_EPOCH + GPSRaw());
+#else
+        return MythDate::fromSecsSinceEpoch(GPS_EPOCH + GPSRaw());
+#endif
     }
     time_t GPSUnix(void) const
         { return GPS_EPOCH + GPSRaw(); }
@@ -744,7 +752,7 @@ class MTV_PUBLIC RatingRegionTable : public PSIPTable
     {
         assert(TableID::RRT == TableID());
     }
-    RatingRegionTable(const PSIPTable &table) : PSIPTable(table)
+    explicit RatingRegionTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::RRT == TableID());
     }
@@ -761,7 +769,7 @@ class MTV_PUBLIC DirectedChannelChangeTable : public PSIPTable
     {
         assert(TableID::DCCT == TableID());
     }
-    DirectedChannelChangeTable(const PSIPTable &table) : PSIPTable(table)
+    explicit DirectedChannelChangeTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::DCCT == TableID());
     }
@@ -779,7 +787,7 @@ class MTV_PUBLIC DirectedChannelChangeSelectionCodeTable : public PSIPTable
     {
         assert(TableID::DCCSCT == TableID());
     }
-    DirectedChannelChangeSelectionCodeTable(const PSIPTable &table)
+    explicit DirectedChannelChangeSelectionCodeTable(const PSIPTable &table)
         : PSIPTable(table)
     {
         assert(TableID::DCCSCT == TableID());
@@ -795,14 +803,14 @@ class MTV_PUBLIC AggregateEventInformationTable : public PSIPTable
     {
         assert(TableID::AEIT == TableID());
     }
-    AggregateEventInformationTable(const PSIPTable &table) : PSIPTable(table)
+    explicit AggregateEventInformationTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::AEIT == TableID());
     }
 
     QString toString(void) const
         { return "AggregateEventInformationTable\n"; }
-    QString toStringXML(uint indent_level) const
+    QString toStringXML(uint /*indent_level*/) const
         { return "<AggregateEventInformationTable />"; }
 };
 
@@ -815,14 +823,14 @@ class MTV_PUBLIC AggregateExtendedTextTable : public PSIPTable
     {
         assert(TableID::AETT == TableID());
     }
-    AggregateExtendedTextTable(const PSIPTable &table) : PSIPTable(table)
+    explicit AggregateExtendedTextTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::AETT == TableID());
     }
 
     QString toString(void) const
         { return "AggregateExtendedTextTable\n"; }
-    QString toStringXML(uint indent_level) const
+    QString toStringXML(uint /*indent_level*/) const
         { return "<AggregateExtendedTextTable />"; }
 };
 

@@ -1,9 +1,8 @@
-// POSIX headers
-#include <unistd.h>
-
 // ANSI C headers
 #include <cmath>
 #include <cerrno>
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 // C++ headers
 #include <algorithm>
@@ -74,7 +73,7 @@ void waitForBuffer(const struct timeval *framestart, int minlag, int flaglag,
         // Slow down; increase sleep time
         sleepus = sleepus * 3 / 2;
     }
-    usleep(sleepus);
+    std::this_thread::sleep_for(std::chrono::microseconds(sleepus));
 }
 
 bool MythPlayerInited(FrameAnalyzerItem &pass,
@@ -433,7 +432,7 @@ void CommDetector2::reportState(int elapsedms, long long frameno,
         long long nframes, unsigned int passno, unsigned int npasses)
 {
     float fps = elapsedms ? (float)frameno * 1000 / elapsedms : 0;
-    int prevpercent = -1;
+    static int prevpercent = -1;
 
     /* Assume that 0-th pass is negligible in terms of computational cost. */
     int percentage = (passno == 0 || npasses == 1 || nframes == 0) ? 0 :
@@ -632,7 +631,7 @@ bool CommDetector2::go(void)
             while (m_bPaused)
             {
                 emit breathe();
-                sleep(1);
+                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
 
             if (!searchingForLogo(logoFinder, *currentPass) &&
@@ -675,7 +674,7 @@ bool CommDetector2::go(void)
 
             // sleep a little so we don't use all cpu even if we're niced
             if (!fullSpeed && !isRecording)
-                usleep(10000);  // 10ms
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
             if (sendBreakMapUpdates && (breakMapUpdateRequested ||
                         !(currentFrameNumber % 500)))
@@ -863,7 +862,7 @@ static void PrintReportMap(ostream &out,
 }
 
 void CommDetector2::PrintFullMap(
-    ostream &out, const frm_dir_map_t *comm_breaks, bool verbose) const
+    ostream &out, const frm_dir_map_t */*comm_breaks*/, bool /*verbose*/) const
 {
     FrameAnalyzer::FrameMap logoMap, blankMap, blankBreakMap, sceneMap;
     if (logoFinder)

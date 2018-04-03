@@ -36,7 +36,7 @@ class DTVRecorder :
     public PSStreamListener
 {
   public:
-    DTVRecorder(TVRec *rec);
+    explicit DTVRecorder(TVRec *rec);
     virtual ~DTVRecorder();
 
     virtual void SetOption(const QString &opt, const QString &value);
@@ -194,6 +194,10 @@ class DTVRecorder :
     double _td_base;
     uint64_t _td_tick_count;
     FrameRate _td_tick_framerate;
+
+    // Music Choice
+    // Comcast Music Choice uses 3 frames every 6 seconds and no key frames
+    bool music_choice;
 
     // constants
     /// If the number of regular frames detected since the last

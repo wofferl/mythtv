@@ -19,6 +19,8 @@
  */
 
 #include <sys/ioctl.h>
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 // Qt includes
 #include <QString>
@@ -49,7 +51,7 @@ V4L2encRecorder::V4L2encRecorder(TVRec *rec, V4LChannel *channel) :
 
 void V4L2encRecorder::SetIntOption(RecordingProfile *profile, const QString &name)
 {
-    const Setting *setting = profile->byName(name);
+    const StandardSetting *setting = profile->byName(name);
     if (setting)
     {
         if (!m_stream_handler->SetOption(name, setting->getValue().toInt()))
@@ -59,7 +61,7 @@ void V4L2encRecorder::SetIntOption(RecordingProfile *profile, const QString &nam
 
 void V4L2encRecorder::SetStrOption(RecordingProfile *profile, const QString &name)
 {
-    const Setting *setting = profile->byName(name);
+    const StandardSetting *setting = profile->byName(name);
     if (setting)
     {
         if (!m_stream_handler->SetOption(name, setting->getValue()))
@@ -189,7 +191,7 @@ void V4L2encRecorder::run(void)
         {
             LOG(VB_GENERAL, LOG_WARNING, LOC +
                 "Recording will not commence until a PMT is set.");
-            usleep(5000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
 

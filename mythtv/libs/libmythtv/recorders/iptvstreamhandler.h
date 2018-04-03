@@ -50,7 +50,7 @@ class IPTVStreamHandlerWriteHelper : QObject
     Q_OBJECT
 
 public:
-    IPTVStreamHandlerWriteHelper(IPTVStreamHandler *);
+    explicit IPTVStreamHandlerWriteHelper(IPTVStreamHandler *);
     ~IPTVStreamHandlerWriteHelper();
 
     void Start(void)
@@ -83,15 +83,16 @@ class IPTVStreamHandler : public StreamHandler
     static void Return(IPTVStreamHandler * & ref);
 
     virtual void AddListener(MPEGStreamData *data,
-                             bool allow_section_reader = false,
-                             bool needs_drb            = false,
-                             QString output_file       = QString())
+                             bool /*allow_section_reader*/ = false,
+                             bool /*needs_drb*/            = false,
+                             QString output_file           = QString())
     {
+        // Force allow_section_reader and needs_buffering to false;
         StreamHandler::AddListener(data, false, false, output_file);
     } // StreamHandler
 
   protected:
-    IPTVStreamHandler(const IPTVTuningData &tuning);
+    explicit IPTVStreamHandler(const IPTVTuningData &tuning);
 
     virtual void run(void); // MThread
 

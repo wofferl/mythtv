@@ -3,7 +3,8 @@
 #include "mythplayer.h"
 #include "videooutbase.h"
 
-#include <unistd.h> // for sleep()
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 VideoDecodeBuffer::VideoDecodeBuffer(MythPlayer *player, VideoOutput *videoout,
                                      bool cutlist, int size)
@@ -21,7 +22,7 @@ VideoDecodeBuffer::~VideoDecodeBuffer()
     m_frameWaitCond.wakeAll();
 
     while (m_isRunning)
-        usleep(50000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 void VideoDecodeBuffer::stop(void)
@@ -30,13 +31,11 @@ void VideoDecodeBuffer::stop(void)
     m_frameWaitCond.wakeAll();
 
     while (m_isRunning)
-        usleep(50000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 void VideoDecodeBuffer::run()
 {
-    frm_dir_map_t::iterator dm_iter;
-
     m_isRunning = true;
     while (m_runThread)
     {
@@ -51,7 +50,7 @@ void VideoDecodeBuffer::run()
             tfInfo.didFF = 0;
             tfInfo.isKey = false;
 
-            if (m_player->TranscodeGetNextFrame(dm_iter, tfInfo.didFF,
+            if (m_player->TranscodeGetNextFrame(tfInfo.didFF,
                 tfInfo.isKey, m_honorCutlist))
             {
                 tfInfo.frame = m_videoOutput->GetLastDecodedFrame();

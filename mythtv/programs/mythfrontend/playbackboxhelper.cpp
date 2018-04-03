@@ -35,6 +35,14 @@ class PBHEventHandler : public QObject
     {
         StorageGroup::ClearGroupToUseCache();
     }
+    ~PBHEventHandler()
+    {
+        if (m_freeSpaceTimerId)
+            killTimer(m_freeSpaceTimerId);
+        if (m_checkAvailabilityTimerId)
+            killTimer(m_checkAvailabilityTimerId);
+    }
+
     virtual bool event(QEvent*); // QObject
     void UpdateFreeSpaceEvent(void);
     AvailableStatusType CheckAvailability(const QStringList &slist);
@@ -217,6 +225,7 @@ bool PBHEventHandler::event(QEvent *e)
                 QStringList &res = (ok) ? successes : failures;
 
                 res.push_back(QString::number(recordingID));
+                list.pop_front();
             }
             if (!successes.empty())
             {
@@ -329,12 +338,12 @@ PlaybackBoxHelper::PlaybackBoxHelper(QObject *listener) :
 
 PlaybackBoxHelper::~PlaybackBoxHelper()
 {
+    // delete the event handler
+    m_eventHandler->deleteLater();
+    m_eventHandler = NULL;
+
     MThread::exit();
     wait();
-
-    // delete the event handler
-    delete m_eventHandler;
-    m_eventHandler = NULL;
 }
 
 void PlaybackBoxHelper::ForceFreeSpaceUpdate(void)

@@ -76,7 +76,7 @@ class MPUBLIC Configurable : public QObject
     virtual void widgetDeleted(QObject *obj);
 
   protected:
-    Configurable(Storage *_storage) :
+    explicit Configurable(Storage *_storage) :
         labelAboveWidget(false), enabled(true), storage(_storage),
         configName(""), label(""), helptext(""), visible(true) { }
     virtual ~Configurable() { }
@@ -113,7 +113,7 @@ class MPUBLIC Setting : public Configurable, public StorageUser
     void valueChanged(const QString&);
 
   protected:
-    Setting(Storage *_storage) : Configurable(_storage) {};
+    explicit Setting(Storage *_storage) : Configurable(_storage) {};
     virtual ~Setting() {};
 
   protected:
@@ -126,7 +126,7 @@ class MPUBLIC Setting : public Configurable, public StorageUser
 class MPUBLIC LabelSetting : public Setting
 {
   protected:
-    LabelSetting(Storage *_storage) : Setting(_storage) { }
+    explicit LabelSetting(Storage *_storage) : Setting(_storage) { }
   public:
     virtual QWidget *configWidget(ConfigurationGroup *cg, QWidget *parent,
                                   const char *widgetName = NULL);
@@ -173,7 +173,7 @@ class MPUBLIC IntegerSetting : public Setting
     Q_OBJECT
 
   protected:
-    IntegerSetting(Storage *_storage) : Setting(_storage)
+    explicit IntegerSetting(Storage *_storage) : Setting(_storage)
     {
         settingValue = QString::number(0);
     }
@@ -266,17 +266,17 @@ class MPUBLIC SelectSetting : public Setting
     Q_OBJECT
 
   protected:
-    SelectSetting(Storage *_storage) :
+    explicit SelectSetting(Storage *_storage) :
         Setting(_storage), current(0), isSet(false) { }
 
   public:
     virtual int  findSelection(  const QString &label,
-                                 QString        value  = QString::null) const;
+                                 QString        value  = QString()) const;
     virtual void addSelection(   const QString &label,
-                                 QString        value  = QString::null,
+                                 QString        value  = QString(),
                                  bool           select = false);
     virtual bool removeSelection(const QString &label,
-                                 QString        value  = QString::null);
+                                 QString        value  = QString());
 
     virtual void clearSelections(void);
 
@@ -285,9 +285,9 @@ class MPUBLIC SelectSetting : public Setting
     virtual uint size(void) const { return labels.size(); }
 
     virtual QString GetLabel(uint i) const
-        { return (i < labels.size()) ? labels[i] : QString::null; }
+        { return (i < labels.size()) ? labels[i] : QString(); }
     virtual QString GetValue(uint i) const
-        { return (i < values.size()) ? values[i] : QString::null; }
+        { return (i < values.size()) ? values[i] : QString(); }
 
   signals:
     void selectionAdded(const QString &label, QString value);
@@ -315,7 +315,7 @@ class MPUBLIC SelectSetting : public Setting
 class MPUBLIC SelectLabelSetting : public SelectSetting
 {
   protected:
-    SelectLabelSetting(Storage *_storage) : SelectSetting(_storage) { }
+    explicit SelectLabelSetting(Storage *_storage) : SelectSetting(_storage) { }
 
   public:
     virtual QWidget *configWidget(ConfigurationGroup *cg, QWidget *parent,
@@ -352,10 +352,10 @@ class MPUBLIC ComboBoxSetting: public SelectSetting
     virtual void setValue(int which);
 
     void addSelection(const QString &label,
-                      QString value = QString::null,
+                      QString value = QString(),
                       bool select = false);
     bool removeSelection(const QString &label,
-                         QString value = QString::null);
+                         QString value = QString());
     void editTextChanged(const QString &newText);
 
   private:
@@ -372,7 +372,7 @@ class MPUBLIC ListBoxSetting: public SelectSetting
     Q_OBJECT
 
   public:
-    ListBoxSetting(Storage *_storage) :
+    explicit ListBoxSetting(Storage *_storage) :
         SelectSetting(_storage),
         bxwidget(NULL), lbwidget(NULL), eventFilter(NULL),
         selectionMode(MythListBox::SingleSelection) { }
@@ -409,7 +409,7 @@ class MPUBLIC ListBoxSetting: public SelectSetting
 
   public slots:
     void addSelection(const QString &label,
-                      QString        value  = QString::null,
+                      QString        value  = QString(),
                       bool           select = false);
 
     void setValueByIndex(int index);
@@ -426,7 +426,7 @@ class MPUBLIC BooleanSetting : public Setting
     Q_OBJECT
 
   public:
-    BooleanSetting(Storage *_storage) : Setting(_storage) {}
+    explicit BooleanSetting(Storage *_storage) : Setting(_storage) {}
 
     bool boolValue(void) const { return getValue().toInt(); }
 
@@ -456,7 +456,7 @@ class MPUBLIC CheckBoxSetting: public BooleanSetting
     Q_OBJECT
 
   public:
-    CheckBoxSetting(Storage *_storage) :
+    explicit CheckBoxSetting(Storage *_storage) :
         BooleanSetting(_storage), widget(NULL) { }
 
     virtual QWidget *configWidget(ConfigurationGroup *cg, QWidget *parent,
@@ -484,7 +484,7 @@ class MPUBLIC PathSetting : public ComboBoxSetting
 
     // TODO: this should support globbing of some sort
     virtual void addSelection(const QString &label,
-                              QString value=QString::null,
+                              QString value=QString(),
                               bool select=false);
 
     // Use a combobox for now, maybe a modified file dialog later
@@ -499,14 +499,14 @@ class MPUBLIC HostnameSetting : public Setting
 {
     Q_OBJECT
   public:
-    HostnameSetting(Storage *_storage);
+    explicit HostnameSetting(Storage *_storage);
 };
 
 class MPUBLIC ChannelSetting : public SelectSetting
 {
     Q_OBJECT
   public:
-    ChannelSetting(Storage *_storage) : SelectSetting(_storage)
+    explicit ChannelSetting(Storage *_storage) : SelectSetting(_storage)
     {
         setLabel("Channel");
     };
@@ -520,7 +520,7 @@ class MPUBLIC DateSetting : public Setting
     Q_OBJECT
 
   public:
-    DateSetting(Storage *_storage) : Setting(_storage) { }
+    explicit DateSetting(Storage *_storage) : Setting(_storage) { }
 
     QString getValue(void) const;
 
@@ -536,7 +536,7 @@ class MPUBLIC TimeSetting : public Setting
     Q_OBJECT
 
   public:
-    TimeSetting(Storage *_storage) : Setting(_storage) { }
+    explicit TimeSetting(Storage *_storage) : Setting(_storage) { }
     QTime timeValue(void) const;
 
   public slots:
@@ -612,7 +612,7 @@ class MPUBLIC TransButtonSetting :
 {
     Q_OBJECT
   public:
-    TransButtonSetting(QString name = "button") :
+    explicit TransButtonSetting(QString name = "button") :
         ButtonSetting(this, name), TransientStorage() { }
 };
 
@@ -629,7 +629,7 @@ class MPUBLIC TransLineEditSetting :
 {
     Q_OBJECT
   public:
-    TransLineEditSetting(bool rw = true) :
+    explicit TransLineEditSetting(bool rw = true) :
         LineEditSetting(this, rw), TransientStorage() { }
 };
 
@@ -696,7 +696,7 @@ class MPUBLIC HostCheckBox : public CheckBoxSetting, public HostDBStorage
 {
     Q_OBJECT
   public:
-    HostCheckBox(const QString &name) :
+    explicit HostCheckBox(const QString &name) :
         CheckBoxSetting(this), HostDBStorage(this, name) { }
     virtual ~HostCheckBox() { ; }
 };
@@ -782,7 +782,7 @@ class MPUBLIC GlobalCheckBox : public CheckBoxSetting, public GlobalDBStorage
 {
     Q_OBJECT
   public:
-    GlobalCheckBox(const QString &name) :
+    explicit GlobalCheckBox(const QString &name) :
         CheckBoxSetting(this), GlobalDBStorage(this, name) { }
 };
 

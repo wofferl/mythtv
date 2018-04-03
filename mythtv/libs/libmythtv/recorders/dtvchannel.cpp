@@ -17,7 +17,7 @@ MasterMap DTVChannel::master_map;
 DTVChannel::DTVChannel(TVRec *parent)
     : ChannelBase(parent),
       tunerType(DTVTunerType::kTunerTypeUnknown),
-      sistandard("mpeg"),         tuningMode(QString::null),
+      sistandard("mpeg"),
       currentProgramNum(-1),
       currentATSCMajorChannel(0), currentATSCMinorChannel(0),
       currentTransportID(0),      currentOriginalNetworkID(0),
@@ -222,7 +222,8 @@ bool DTVChannel::SetChannelByString(const QString &channum)
     }
 
     if ((mplexid_restriction && (mplexid != mplexid_restriction)) ||
-        (chanid_restriction && (chanid != chanid_restriction)))
+        (!mplexid_restriction &&
+         chanid_restriction && (chanid != chanid_restriction)))
     {
         LOG(VB_GENERAL, LOG_ERR, loc +
             QString("Requested channel '%1' is not available because "
@@ -388,7 +389,7 @@ bool DTVChannel::SetChannelByString(const QString &channum)
     return ok;
 }
 
-void DTVChannel::HandleScriptEnd(bool ok)
+void DTVChannel::HandleScriptEnd(bool /*ok*/)
 {
     // MAYBE TODO? need to tell signal monitor to throw out any tables
     // it saw on the last mux...
@@ -397,7 +398,7 @@ void DTVChannel::HandleScriptEnd(bool ok)
     // will save the current channel to (*it)->startChanNum
 }
 
-bool DTVChannel::TuneMultiplex(uint mplexid, QString inputname)
+bool DTVChannel::TuneMultiplex(uint mplexid, QString /*inputname*/)
 {
     DTVMultiplex tuning;
     if (!tuning.FillFromDB(tunerType, mplexid))

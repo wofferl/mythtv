@@ -11,7 +11,8 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #include <stdlib.h>
-#include <unistd.h> // for usleep()
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 #include <QStringList>
 #include <QFile>
@@ -23,10 +24,8 @@
 #include "compat.h"
 #include "mythdate.h"
 
-#if !defined(QT_NO_IPV6)
 static QPair<QHostAddress, int> kLinkLocal6 =
                             QHostAddress::parseSubnet("fe80::/10");
-#endif
 
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
@@ -109,27 +108,24 @@ void UPnpSearchTask::SendMsg( MSocketDevice  *pSocket,
     {
         QString ipaddress;
 
-
         // Avoid announcing the localhost address
         if (*it == QHostAddress::LocalHost ||
-            *it == QHostAddress::LocalHostIPv6)
+            *it == QHostAddress::LocalHostIPv6 ||
+            *it == QHostAddress::AnyIPv4 ||
+            *it == QHostAddress::AnyIPv6)
             continue;
 
+        QHostAddress ip = *it;
         // Descope the Link Local address. The scope is only valid
         // on the server sending the announcement, not the clients
         // that receive it
-        // FIXME what happens for scopeId "4"? Do we remove all 4s from the address?
-        // http://doc.qt.io/qt-5/qhostaddress.html#scopeId
-        if ((*it).isInSubnet(kLinkLocal6))
-        {
-            ipaddress = "[" + (*it).toString()
-                        .remove('%').remove((*it).scopeId()) + "]";
-        }            
+        ip.setScopeId(QString());
+
         // If this looks like an IPv6 address, then enclose it in []'s
-        else if ((*it).protocol() == QAbstractSocket::IPv6Protocol)
-            ipaddress = "[" + (*it).toString() + "]";
+        if (ip.protocol() == QAbstractSocket::IPv6Protocol)
+            ipaddress = "[" + ip.toString() + "]";
         else
-            ipaddress = (*it).toString();
+            ipaddress = ip.toString();
 
         QString sHeader = QString ( "HTTP/1.1 200 OK\r\n"
                                     "LOCATION: http://%1:%2/getDeviceDesc\r\n" )
@@ -146,7 +142,7 @@ void UPnpSearchTask::SendMsg( MSocketDevice  *pSocket,
 
         pSocket->writeBlock( scPacket, scPacket.length(), m_PeerAddress,
                              m_nPeerPort );
-        usleep( random() % 250000 );
+        std::this_thread::sleep_for( std::chrono::milliseconds( random() % 250 ));
         pSocket->writeBlock( scPacket, scPacket.length(), m_PeerAddress,
                              m_nPeerPort );
     }

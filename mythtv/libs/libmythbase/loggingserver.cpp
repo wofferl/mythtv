@@ -28,6 +28,10 @@ using namespace std;
 #include <stdlib.h>
 #ifndef _WIN32
 #include <syslog.h>
+#if CONFIG_SYSTEMD_JOURNAL
+#define SD_JOURNAL_SUPPRESS_LOCATION 1
+#include <systemd/sd-journal.h>
+#endif
 #endif
 #include <stdarg.h>
 #include <string.h>
@@ -286,11 +290,14 @@ bool FileLogger::setupZMQSocket(void)
 #ifndef _WIN32
 /// \brief SyslogLogger constructor
 /// \param facility Syslog facility to use in logging
-SyslogLogger::SyslogLogger() :
+SyslogLogger::SyslogLogger(bool open) :
     LoggerBase(NULL), m_opened(false), m_zmqSock(NULL)
 {
-    openlog(NULL, LOG_NDELAY, 0 );
-    m_opened = true;
+    if (open)
+    {
+        openlog(NULL, LOG_NDELAY, 0 );
+        m_opened = true;
+    }
 
     LOG(VB_GENERAL, LOG_INFO, "Added syslogging");
 }
@@ -299,7 +306,8 @@ SyslogLogger::SyslogLogger() :
 SyslogLogger::~SyslogLogger()
 {
     LOG(VB_GENERAL, LOG_INFO, "Removing syslogging");
-    closelog();
+    if (m_opened)
+        closelog();
 
 #ifndef NOLOGSERVER
     m_zmqSock->unsubscribeFrom(QByteArray(""));
@@ -310,7 +318,7 @@ SyslogLogger::~SyslogLogger()
 #endif
 }
 
-SyslogLogger *SyslogLogger::create(QMutex *mutex)
+SyslogLogger *SyslogLogger::create(QMutex *mutex, bool open)
 {
     SyslogLogger *logger =
         dynamic_cast<SyslogLogger *>(loggerMap.value("", NULL));
@@ -321,7 +329,7 @@ SyslogLogger *SyslogLogger::create(QMutex *mutex)
     // Need to add a new FileLogger
     mutex->unlock();
     // inserts into loggerMap
-    logger = new SyslogLogger;
+    logger = new SyslogLogger(open);
     mutex->lock();
 
     if (!logger->setupZMQSocket())
@@ -340,6 +348,24 @@ SyslogLogger *SyslogLogger::create(QMutex *mutex)
 /// \param item LoggingItem containing the log message to process
 bool SyslogLogger::logmsg(LoggingItem *item)
 {
+#if CONFIG_SYSTEMD_JOURNAL
+    if (item->facility() == SYSTEMD_JOURNAL_FACILITY)
+    {
+        sd_journal_send(
+            "MESSAGE=%s", item->rawMessage(),
+            "PRIORITY=%d", item->level(),
+            "CODE_FILE=%s", item->rawFile(),
+            "CODE_LINE=%d", item->line(),
+            "CODE_FUNC=%s", item->rawFunction(),
+            "SYSLOG_IDENTIFIER=%s", item->rawAppName(),
+            "SYSLOG_PID=%d", item->pid(),
+            "MYTH_THREAD=%s", item->rawThreadName(),
+	    NULL
+        );
+        return true;
+    }
+    else
+#endif
     if (!m_opened || item->facility() <= 0)
         return false;
 
@@ -404,7 +430,7 @@ SyslogLogger::~SyslogLogger()
 {
 }
 
-SyslogLogger *SyslogLogger::create(QMutex *mutex)
+SyslogLogger *SyslogLogger::create(QMutex *mutex, bool open)
 {
     return NULL;
 }
@@ -597,7 +623,13 @@ bool DatabaseLogger::logqmsg(MSqlQuery &query, LoggingItem *item)
         // and suppress additional errors for one second after the
         // previous error (to avoid spamming the log).
         QSqlError err = query.lastError();
-        if ((err.type() != 1 || err.number() != -1) &&
+        if ((err.type() != 1
+#if QT_VERSION < QT_VERSION_CHECK(5,3,0)
+             || err.number() != -1
+#else
+             || !err.nativeErrorCode().isEmpty()
+#endif
+                ) &&
             (!m_errorLoggingTime.isValid() ||
              (m_errorLoggingTime.elapsed() > 1000)))
         {
@@ -729,7 +761,7 @@ void DBLoggerThread::run(void)
             if (!item)
                 continue;
 
-            if (item->message()[0] != '\0')
+            if (item->message()[0] != QChar('\0'))
             {
                 qLock.unlock();
                 bool logged = m_logger->logqmsg(*query, item);
@@ -923,6 +955,8 @@ void LogServerThread::pingClient(QString clientId)
     QByteArray clientBa = QByteArray::fromHex(clientId.toLocal8Bit());
     msg << clientBa << QByteArray("");
     m_zmqInSock->sendMessage(msg);
+#else
+    Q_UNUSED(clientId)
 #endif
 }
 
@@ -990,15 +1024,15 @@ void LogServerThread::stop(void)
 /// \return TRUE on success, FALSE on failure
 ///
 /// \todo   Implement the following parameters to customise behaviour?...
-/// \param  logfile Filename of the logfile to create.  Empty if no file.
-/// \param  progress    non-zero if progress output will be sent to the console.
+/// \\param  logfile Filename of the logfile to create.  Empty if no file.
+/// \\param  progress    non-zero if progress output will be sent to the console.
 ///                     This squelches all messages less important than LOG_ERR
 ///                     on the console
-/// \param  quiet       quiet level requested (squelches all console output)
-/// \param  facility    Syslog facility to use.  -1 to disable syslog output
-/// \param  level       Minimum logging level to put into the logs
-/// \param  dblog       true if database logging is requested
-/// \param  propagate   true if the logfile path needs to be propagated to child
+/// \\param  quiet       quiet level requested (squelches all console output)
+/// \\param  facility    Syslog facility to use.  -1 to disable syslog output
+/// \\param  level       Minimum logging level to put into the logs
+/// \\param  dblog       true if database logging is requested
+/// \\param  propagate   true if the logfile path needs to be propagated to child
 ///                     processes.
 bool logServerStart(void)
 {
@@ -1415,9 +1449,15 @@ void LogForwardThread::forwardMessage(LogMessage *msg)
 #ifndef _WIN32
         // SyslogLogger from facility
         int facility = item->facility();
+#if CONFIG_SYSTEMD_JOURNAL
+        if ((facility > 0) || (facility == SYSTEMD_JOURNAL_FACILITY))
+        {
+            logger = SyslogLogger::create(lock2.mutex(), facility > 0);
+#else
         if (facility > 0)
         {
             logger = SyslogLogger::create(lock2.mutex());
+#endif
 
             ClientList *clients = logRevClientMap.value(logger);
 

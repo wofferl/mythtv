@@ -13,6 +13,7 @@ using namespace std;
 #include <QDateTime>
 #include <QList>
 #include <QMap>
+#include <QStringList>
 
 // MythTV headers
 #include "mythtvexp.h"
@@ -72,7 +73,7 @@ class MTV_PUBLIC EventRating
 class MTV_PUBLIC DBEvent
 {
   public:
-    DBEvent(uint _listingsource) :
+    explicit DBEvent(uint _listingsource) :
         title(),
         subtitle(),
         description(),
@@ -182,6 +183,7 @@ class MTV_PUBLIC DBEvent
     bool          previouslyshown;
     uint32_t      listingsource;
     QList<EventRating> ratings;
+    QStringList   genres;
     uint          season;
     uint          episode;
     uint          totalepisodes;
@@ -240,16 +242,7 @@ class MTV_PUBLIC ProgInfo : public DBEvent
 {
   public:
     ProgInfo() :
-        DBEvent(kListingSourceXMLTV),
-        // extra XMLTV stuff
-        channel(QString::null),
-        startts(QString::null),
-        endts(QString::null),
-        title_pronounce(QString::null),
-        showtype(QString::null),
-        colorcode(QString::null),
-        clumpidx(QString::null),
-        clumpmax(QString::null) { }
+        DBEvent(kListingSourceXMLTV) { }
 
     ProgInfo(const ProgInfo &other);
 

@@ -7,7 +7,7 @@
 
 #include <vector>                       // for vector
 
-#include "programtypes.h"               // for RecStatus, RecStatus::Type, etc
+#include "enums/recStatus.h"
 #include "tv.h"                         // for SleepStatus, etc
 #include "videoouttypes.h"              // for PictureAttribute
 
@@ -139,6 +139,8 @@ class EncoderLink
                         QString oldchannum,
                         QString callsign, QString channum,
                         QString channame, QString xmltv);
+
+    bool AddChildInput(uint childid);
 
   private:
     bool HasSockAndIncrRef();

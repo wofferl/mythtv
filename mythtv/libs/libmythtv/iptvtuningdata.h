@@ -97,7 +97,7 @@ class MTV_PUBLIC IPTVTuningData
         const QUrl u = GetDataURL();
         if (IsHLS())
             return QString("%1(%2)").arg(u.toString()).arg(GetBitrate(0));
-        if (IsHTTPTS())
+        if (IsHTTPTS() || IsRTSP())
             return QString("%1").arg(u.toString());
         return QString("%1:%2:%3")
             .arg(u.host()).arg(u.userInfo()).arg(u.port()).toLower();
@@ -209,9 +209,9 @@ class MTV_PUBLIC IPTVTuningData
             m_protocol = IPTVTuningData::rtp;
         else if (m_data_url.scheme() == "rtsp")
             m_protocol = IPTVTuningData::rtsp;
-        else if ((m_data_url.scheme() == "http") && IsHLSPlaylist())
+        else if (((m_data_url.scheme() == "http") || (m_data_url.scheme() == "https")) && IsHLSPlaylist())
             m_protocol = IPTVTuningData::http_hls;
-        else if (m_data_url.scheme() == "http")
+        else if ((m_data_url.scheme() == "http") || (m_data_url.scheme() == "https"))
             m_protocol = IPTVTuningData::http_ts;
         else
             m_protocol = IPTVTuningData::inValid;
@@ -227,6 +227,20 @@ class MTV_PUBLIC IPTVTuningData
         }
 
         QString url = m_data_url.toString();
+
+        // check url is valid for a playlist before downloading (see trac ticket #12856)
+        if(url.endsWith(".m3u8", Qt::CaseInsensitive) ||
+           url.endsWith(".m3u", Qt::CaseInsensitive))
+        {
+            LOG(VB_RECORD, LOG_INFO, QString("IsHLSPlaylist url ends with either .m3u8 or .m3u %1").arg(url));
+        }
+        else
+        {
+            // not a valid playlist so just return false
+            LOG(VB_RECORD, LOG_INFO, QString("IsHLSPlaylist url does not end with either .m3u8 or .m3u %1").arg(url));
+            return false;
+        }
+
         QByteArray buffer;
 
         MythSingleDownload downloader;

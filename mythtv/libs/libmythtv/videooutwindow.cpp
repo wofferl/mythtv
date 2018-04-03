@@ -93,6 +93,12 @@ VideoOutWindow::VideoOutWindow() :
                      gCoreContext->GetNumSetting("yScanDisplacement", 0));
     db_use_gui_size = gCoreContext->GetNumSetting("GuiSizeForTV", 0);
 
+    populateGeometry();
+}
+
+void VideoOutWindow::populateGeometry(void)
+{
+    qApp->processEvents();
     QDesktopWidget *desktop = NULL;
     if (qobject_cast<QApplication*>(qApp))
         desktop = QApplication::desktop();
@@ -104,13 +110,8 @@ VideoOutWindow::VideoOutWindow() :
         if (using_xinerama)
         {
             screen_num = gCoreContext->GetNumSetting("XineramaScreen", screen_num);
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-            if (screen_num >= desktop->numScreens())
-                screen_num = 0;
-#else
             if (screen_num >= desktop->screenCount())
                 screen_num = 0;
-#endif
         }
 
         screen_geom = desktop->geometry();
@@ -489,6 +490,8 @@ bool VideoOutWindow::Init(const QSize &new_video_dim_buf,
                           AspectOverrideMode new_aspectoverride,
                           AdjustFillMode new_adjustfill)
 {
+    // Refresh the geometry in case the video mode has changed
+    populateGeometry();
     display_visible_rect = db_use_gui_size ? new_display_visible_rect :
                                              screen_geom;
 
@@ -530,11 +533,9 @@ void VideoOutWindow::PrintMoveResizeDebug(void)
     LOG(VB_PLAYBACK, LOG_DEBUG, QString("Img(%1,%2 %3,%4)")
            .arg(video_rect.left()).arg(video_rect.top())
            .arg(video_rect.width()).arg(video_rect.height()));
-    LOG(VB_PLAYBACK, LOG_DEBUG, QString("Disp(%1,%1 %2,%4)")
+    LOG(VB_PLAYBACK, LOG_DEBUG, QString("Disp(%1,%2 %3,%4)")
            .arg(display_video_rect.left()).arg(display_video_rect.top())
            .arg(display_video_rect.width()).arg(display_video_rect.height()));
-    LOG(VB_PLAYBACK, LOG_DEBUG, QString("Offset(%1,%2)")
-           .arg(xoff).arg(yoff));
     LOG(VB_PLAYBACK, LOG_DEBUG, QString("Vscan(%1, %2)")
            .arg(db_scale_vert).arg(db_scale_vert));
     LOG(VB_PLAYBACK, LOG_DEBUG, QString("DisplayAspect: %1")
@@ -547,7 +548,7 @@ void VideoOutWindow::PrintMoveResizeDebug(void)
            .arg(fix_aspect(GetDisplayAspect())));
     LOG(VB_PLAYBACK, LOG_DEBUG, QString("AspectOverride: %1")
            .arg(aspectoverride));
-    LOG(VB_PLAYBACK, LOG_DEBUG, QString("AdjustFill: %d") .arg(adjustfill));
+    LOG(VB_PLAYBACK, LOG_DEBUG, QString("AdjustFill: %1") .arg(adjustfill));
 #endif
 
     LOG(VB_PLAYBACK, LOG_INFO,
@@ -612,12 +613,7 @@ bool VideoOutWindow::InputChanged(const QSize &input_size_buf,
     video_disp_dim = input_size_disp;
     video_dim = input_size_buf;
 
-    /*    if (db_vdisp_profile)
-          db_vdisp_profile->SetInput(video_dim);*///done in videooutput
-
     SetVideoAspectRatio(aspect);
-
-    //    DiscardFrames(true);
 
     return true;
 }
@@ -722,10 +718,10 @@ void VideoOutWindow::StopEmbedding(void)
 }
 
 /**
- * \fn VideoOutWindow::GetVisibleOSDBounds(float&,float&,float) const
  * \brief Returns visible portions of total OSD bounds
  * \param visible_aspect physical aspect ratio of bounds returned
  * \param font_scaling   scaling to apply to fonts
+ * \param themeaspect    aspect ration of the theme
  */
 QRect VideoOutWindow::GetVisibleOSDBounds(
     float &visible_aspect, float &font_scaling, float themeaspect) const

@@ -36,7 +36,7 @@ class Dvr : public DvrServices
 
     public:
 
-        Q_INVOKABLE explicit Dvr( QObject *parent = 0 ) {}
+        Q_INVOKABLE explicit Dvr( QObject */*parent*/ = 0 ) {}
 
     public:
 
@@ -48,7 +48,19 @@ class Dvr : public DvrServices
                                                 int              Count,
                                                 const QString   &TitleRegEx,
                                                 const QString   &RecGroup,
-                                                const QString   &StorageGroup );
+                                                const QString   &StorageGroup,
+                                                const QString   &Category,
+                                                const QString   &Sort);
+
+        DTC::ProgramList* GetOldRecordedList  ( bool             Descending,
+                                                int              StartIndex,
+                                                int              Count,
+                                                const QDateTime &StartTime,
+                                                const QDateTime &EndTime,
+                                                const QString   &Title,
+                                                const QString   &SeriesId,
+                                                int              RecordId,
+                                                const QString   &Sort);
 
         DTC::Program*     GetRecorded         ( int              RecordedId,
                                                 int              ChanId,
@@ -70,10 +82,28 @@ class Dvr : public DvrServices
                                                 int              ChanId,
                                                 const QDateTime &StartTime );
 
+        bool              StopRecording       ( int              RecordedId );
+
+        bool              ReactivateRecording ( int              RecordedId );
+
+        bool              RescheduleRecordings( void );
+
         bool              UpdateRecordedWatchedStatus ( int   RecordedId,
                                                         int   ChanId,
                                                         const QDateTime &StartTime,
                                                         bool  Watched);
+
+       long              GetSavedBookmark     ( int              RecordedId,
+                                                int              ChanId,
+                                                const QDateTime &StartTime,
+                                                const QString   &OffsetType );
+
+       bool              SetSavedBookmark     ( int              RecordedId,
+                                                int              ChanId,
+                                                const QDateTime &StartTime,
+                                                const QString   &OffsetType,
+                                                long             Offset
+                                                );
 
         DTC::CutList*     GetRecordedCutList  ( int              RecordedId,
                                                 int              ChanId,
@@ -83,6 +113,9 @@ class Dvr : public DvrServices
         DTC::CutList*     GetRecordedCommBreak ( int              RecordedId,
                                                  int              ChanId,
                                                  const QDateTime &StartTime,
+                                                 const QString   &OffsetType );
+
+        DTC::CutList*     GetRecordedSeek      ( int              RecordedId,
                                                  const QString   &OffsetType );
 
         DTC::ProgramList* GetConflictList     ( int              StartIndex,
@@ -100,6 +133,8 @@ class Dvr : public DvrServices
         DTC::InputList*   GetInputList        ( );
 
         QStringList       GetRecGroupList     ( );
+
+        QStringList       GetProgramCategories   ( bool OnlyRecorded );
 
         QStringList       GetRecStorageGroupList ( );
 
@@ -219,6 +254,8 @@ class Dvr : public DvrServices
 
         bool              DisableRecordSchedule( uint             RecordId   );
 
+        int               RecordedIdForPathname( const QString   &Filename );
+
         QString           RecStatusToString    ( int              RecStatus );
 
         QString           RecStatusToDescription ( int            RecStatus,
@@ -285,12 +322,32 @@ class ScriptableDvr : public QObject
                                        int              Count,
                                        const QString   &TitleRegEx,
                                        const QString   &RecGroup,
-                                       const QString   &StorageGroup)
+                                       const QString   &StorageGroup,
+                                       const QString   &Category,
+                                       const QString   &Sort
+                                     )
         {
             SCRIPT_CATCH_EXCEPTION( NULL,
                 return m_obj.GetRecordedList( Descending, StartIndex, Count,
                                               TitleRegEx, RecGroup,
-                                              StorageGroup);
+                                              StorageGroup, Category, Sort);
+            )
+        }
+
+        QObject* GetOldRecordedList  ( bool             Descending,
+                                       int              StartIndex,
+                                       int              Count,
+                                       const QDateTime &StartTime,
+                                       const QDateTime &EndTime,
+                                       const QString   &Title,
+                                       const QString   &SeriesId,
+                                       int              RecordId,
+                                       const QString   &Sort)
+        {
+            SCRIPT_CATCH_EXCEPTION( NULL,
+                return m_obj.GetOldRecordedList( Descending, StartIndex, Count,
+                                                 StartTime, EndTime, Title,
+                                                 SeriesId, RecordId, Sort);
             )
         }
 
@@ -580,6 +637,6 @@ class ScriptableDvr : public QObject
         }
 };
 
-Q_SCRIPT_DECLARE_QMETAOBJECT_MYTHTV( ScriptableDvr, QObject*);
+Q_SCRIPT_DECLARE_QMETAOBJECT_MYTHTV( ScriptableDvr, QObject*)
 
 #endif

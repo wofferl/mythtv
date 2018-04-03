@@ -48,18 +48,22 @@
 /////////////////////////////////////////////////////////////////////////////
 
 DTC::ChannelInfoList* Channel::GetChannelInfoList( uint nSourceID,
+                                                   uint nChannelGroupID,
                                                    uint nStartIndex,
                                                    uint nCount,
                                                    bool bOnlyVisible,
-                                                   bool bDetails )
+                                                   bool bDetails,
+                                                   bool bOrderByName,
+                                                   bool bGroupByCallsign )
 {
     ChannelInfoList chanList;
 
     uint nTotalAvailable = 0;
+
     chanList = ChannelUtil::LoadChannels( 0, 0, nTotalAvailable, bOnlyVisible,
-                                          ChannelUtil::kChanOrderByChanNum,
-                                          ChannelUtil::kChanGroupByChanid,
-                                          nSourceID ); //, nChanGroupID
+                                          bOrderByName ? ChannelUtil::kChanOrderByName : ChannelUtil::kChanOrderByChanNum,
+                                          bGroupByCallsign ? ChannelUtil::kChanGroupByCallsign : ChannelUtil::kChanGroupByChanid,
+                                          nSourceID, nChannelGroupID);
 
     // ----------------------------------------------------------------------
     // Build Response
@@ -82,7 +86,11 @@ DTC::ChannelInfoList* Channel::GetChannelInfoList( uint nSourceID,
         ChannelInfo channelInfo = (*chanIt);
 
         if (!FillChannelInfo(pChannelInfo, channelInfo, bDetails))
+        {
+            delete pChannelInfo;
+            delete pChannelInfos;
             throw( QString("Channel ID appears invalid."));
+        }
     }
 
     int nCurPage = 0, nTotalPages = 0;
@@ -376,6 +384,7 @@ DTC::LineupList* Channel::GetDDLineupList( const QString &sSource,
         DataDirectProcessor ddp(source, sUserId, sPassword);
         if (!ddp.GrabLineupsOnly())
         {
+            delete pLineups;
             throw( QString("Unable to grab lineups. Check info."));
         }
         const DDLineupList lineups = ddp.GetLineups();

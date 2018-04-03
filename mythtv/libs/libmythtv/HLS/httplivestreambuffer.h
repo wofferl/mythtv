@@ -43,7 +43,7 @@ typedef QList<HLSStream*> StreamsList;
 class HLSRingBuffer : public RingBuffer
 {
 public:
-    HLSRingBuffer(const QString &lfilename);
+    explicit HLSRingBuffer(const QString &lfilename);
     HLSRingBuffer(const QString &lfilename, bool open);
     virtual ~HLSRingBuffer();
 
@@ -91,7 +91,7 @@ private:
     int ParseDiscontinuity(HLSStream *hls, const QString &line) const;
     int ParseM3U8(const QByteArray *buffer, StreamsList *streams = NULL);
     int Prefetch(int count);
-    void SanityCheck(const HLSStream *hls, const HLSSegment *segment) const;
+    void SanityCheck(const HLSStream *hls) const;
     HLSSegment *GetSegment(int segnum, int timeout = 1000);
     int NumSegments(void) const;
     int ChooseSegment(int stream) const;

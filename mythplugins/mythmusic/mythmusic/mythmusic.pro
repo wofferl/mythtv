@@ -3,9 +3,7 @@ include ( ../../settings.pro )
 include ( ../../programs-libs.pro )
 include (config.pro)
 
-QT += xml sql opengl network
-contains(QT_VERSION, ^4\\.[0-9]\\..*) : QT += webkit
-contains(QT_VERSION, ^5\\.[0-9]\\..*) : QT += widgets webkitwidgets
+QT += xml sql opengl network widgets webkitwidgets
 
 !exists( config.pro ) {
    error(Missing config.pro: please run the configure script)
@@ -25,6 +23,7 @@ LIBS += -lmythavcodec
 LIBS += -lmythavutil
 LIBS += -ltag -logg -lvorbisfile -lvorbis -lvorbisenc -lFLAC -lmp3lame
 LIBS += -lmythmetadata-$$LIBVERSION
+LIBS += -lmythtv-$$LIBVERSION
 
 # Input
 HEADERS += constants.h

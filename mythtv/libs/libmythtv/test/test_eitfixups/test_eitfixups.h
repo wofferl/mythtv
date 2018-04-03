@@ -20,12 +20,6 @@
 
 #include <QtTest/QtTest>
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-#define MSKIP(MSG) QSKIP(MSG, SkipSingle)
-#else
-#define MSKIP(MSG) QSKIP(MSG)
-#endif
-
 #include <eithelper.h> /* for FixupValue */
 #include <programdata.h>
 
@@ -52,6 +46,7 @@ class TestEITFixups : public QObject
     void testUnitymedia(void);
     void testDeDisneyChannel(void);
     void testATV(void);
+    void test64BitEnum(void);
 
   private:
     static DBEventEIT *SimpleDBEventEIT (FixupValue fix, QString title, QString subtitle, QString description);

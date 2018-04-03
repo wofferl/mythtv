@@ -37,33 +37,69 @@
 #include "mythdbcon.h"
 #include "mythwizard.h"
 #include "settings.h"
+#include "standardsettings.h"
+#include "scanwizardconfig.h"
 
-class ScanWizardConfig;
 class ChannelScannerGUI;
 
-class MTV_PUBLIC ScanWizard : public QObject, public ConfigurationWizard
+class MTV_PUBLIC ScanWizard : public GroupSetting
 {
     Q_OBJECT
 
   public:
     ScanWizard(uint    default_sourceid  = 0,
                uint    default_cardid    = 0,
-               QString default_inputname = QString::null);
+               QString default_inputname = QString());
 
-    MythDialog *dialogWidget(MythMainWindow *parent, const char *widgetName);
+    ~ScanWizard() { }
 
   protected slots:
-    void SetPage(const QString &pageTitle);
+    void Scan();
     void SetInput(const QString &cardid_inputname);
-
-  protected:
-    ~ScanWizard() { }
 
   protected:
     uint               lastHWCardID;
     uint               lastHWCardType;
-    ScanWizardConfig  *configPane;
     ChannelScannerGUI *scannerPane;
+
+  // The following are moved from deleted class ScanWizardConfig
+  public:
+    void SetupConfig(uint default_sourceid, uint default_cardid,
+        QString default_inputname);
+
+    uint    GetSourceID(void)     const;
+    uint    GetScanID(void)       const { return scanConfig->GetScanID(); }
+    QString GetModulation(void)   const { return scanConfig->GetModulation(); }
+    int     GetScanType(void)     const { return scanType->getValue().toInt();}
+    uint    GetCardID(void)       const { return input->GetCardID(); }
+    QString GetInputName(void)    const { return input->GetInputName(); }
+    QString GetFilename(void)     const { return scanConfig->GetFilename();   }
+    uint    GetMultiplex(void)    const { return scanConfig->GetMultiplex();  }
+    bool    GetFrequencyTableRange(QString &start, QString &end) const
+        { return scanConfig->GetFrequencyTableRange(start, end); }
+    QString GetFrequencyStandard(void) const
+        { return scanConfig->GetFrequencyStandard(); }
+    QString GetFrequencyTable(void) const
+        { return scanConfig->GetFrequencyTable(); }
+    QMap<QString,QString> GetStartChan(void) const
+        { return scanConfig->GetStartChan(); }
+    ServiceRequirements GetServiceRequirements(void) const;
+    bool    DoIgnoreSignalTimeout(void) const
+        { return scanConfig->DoIgnoreSignalTimeout(); }
+    bool    DoFollowNIT(void) const
+        { return scanConfig->DoFollowNIT(); }
+    bool    DoFreeToAirOnly(void)  const;
+    bool    DoTestDecryption(void) const;
+
+  protected:
+    VideoSourceSelector *videoSource;
+    InputSelector       *input;
+    ScanTypeSetting     *scanType;
+    ScanOptionalConfig  *scanConfig;
+    DesiredServices     *services;
+    FreeToAirOnly       *ftaOnly;
+    TrustEncSISetting   *trustEncSI;
+// End of members moved from ScanWizardConfig
 };
 
 #endif // SCANWIZARD_H

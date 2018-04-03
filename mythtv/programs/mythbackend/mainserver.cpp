@@ -4,10 +4,11 @@
 #include <algorithm>
 #include <cerrno>
 #include <memory>
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 using namespace std;
 
 #include <math.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include "mythconfig.h"
 
@@ -77,6 +78,7 @@ using namespace std;
 #include "musicmetadata.h"
 #include "imagemanager.h"
 #include "cardutil.h"
+#include "tv_rec.h"
 
 // mythbackend headers
 #include "backendcontext.h"
@@ -243,7 +245,8 @@ MainServer::MainServer(bool master, int port,
     masterServerReconnect(NULL),
     masterServer(NULL), ismaster(master), threadPool("ProcessRequestPool"),
     masterBackendOverride(false),
-    m_sched(sched), m_expirer(expirer), deferredDeleteTimer(NULL),
+    m_sched(sched), m_expirer(expirer), m_addChildInputLock(),
+    deferredDeleteTimer(NULL),
     autoexpireUpdateTimer(NULL), m_exitCode(GENERIC_EXIT_OK),
     m_stopped(false)
 {
@@ -259,44 +262,40 @@ MainServer::MainServer(bool master, int port,
     mythserver = new MythServer();
     mythserver->setProxy(QNetworkProxy::NoProxy);
 
-    // test to make sure listen addresses are available
-    // no reason to run the backend if the mainserver is not active
-    QHostAddress config_v4(gCoreContext->resolveSettingAddress(
-                                           "BackendServerIP",
-                                           QString(),
-                                           gCoreContext->ResolveIPv4, true));
-    bool v4IsSet = config_v4.isNull() ? false : true;
-#if !defined(QT_NO_IPV6)
-    QHostAddress config_v6(gCoreContext->resolveSettingAddress(
-                                           "BackendServerIP6",
-                                           QString(),
-                                           gCoreContext->ResolveIPv6, true));
-    bool v6IsSet = config_v6.isNull() ? false : true;
-#endif
     QList<QHostAddress> listenAddrs = mythserver->DefaultListen();
-
-    #if !defined(QT_NO_IPV6)
-    if (v6IsSet && !listenAddrs.contains(config_v6))
-        LOG(VB_GENERAL, LOG_WARNING, LOC +
-            "Unable to find IPv6 address to bind");
-    #endif
-
-    if (v4IsSet && !listenAddrs.contains(config_v4))
-        LOG(VB_GENERAL, LOG_WARNING, LOC +
-            "Unable to find IPv4 address to bind");
-
-    if ((v4IsSet && !listenAddrs.contains(config_v4))
-#if !defined(QT_NO_IPV6)
-        && (v6IsSet && !listenAddrs.contains(config_v6))
-#endif
-       )
+    if (!gCoreContext->GetNumSetting("ListenOnAllIps",1))
     {
-        LOG(VB_GENERAL, LOG_ERR, LOC + "Unable to find either IPv4 or IPv6 "
-                                 "address we can bind to, exiting");
-        SetExitCode(GENERIC_EXIT_SOCKET_ERROR, false);
-        return;
-    }
+        // test to make sure listen addresses are available
+        // no reason to run the backend if the mainserver is not active
+        QHostAddress config_v4(gCoreContext->resolveSettingAddress(
+                                            "BackendServerIP",
+                                            QString(),
+                                            gCoreContext->ResolveIPv4, true));
+        bool v4IsSet = config_v4.isNull() ? false : true;
+        QHostAddress config_v6(gCoreContext->resolveSettingAddress(
+                                            "BackendServerIP6",
+                                            QString(),
+                                            gCoreContext->ResolveIPv6, true));
+        bool v6IsSet = config_v6.isNull() ? false : true;
 
+        if (v6IsSet && !listenAddrs.contains(config_v6))
+            LOG(VB_GENERAL, LOG_WARNING, LOC +
+                "Unable to find IPv6 address to bind");
+
+        if (v4IsSet && !listenAddrs.contains(config_v4))
+            LOG(VB_GENERAL, LOG_WARNING, LOC +
+                "Unable to find IPv4 address to bind");
+
+        if ((v4IsSet && !listenAddrs.contains(config_v4))
+            && (v6IsSet && !listenAddrs.contains(config_v6))
+        )
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC + "Unable to find either IPv4 or IPv6 "
+                                    "address we can bind to, exiting");
+            SetExitCode(GENERIC_EXIT_SOCKET_ERROR, false);
+            return;
+        }
+    }
     if (!mythserver->listen(port))
     {
         SetExitCode(GENERIC_EXIT_SOCKET_ERROR, false);
@@ -439,7 +438,11 @@ void MainServer::autoexpireUpdate(void)
 void MainServer::NewConnection(qt_socket_fd_t socketDescriptor)
 {
     QWriteLocker locker(&sockListLock);
-    controlSocketList.insert(new MythSocket(socketDescriptor, this));
+    MythSocket *ms =  new MythSocket(socketDescriptor, this);
+    if (ms->IsConnected())
+        controlSocketList.insert(ms);
+    else
+        ms-> DecrRef();
 }
 
 void MainServer::readyRead(MythSocket *sock)
@@ -497,6 +500,7 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     line = line.simplified();
     QStringList tokens = line.split(' ', QString::SkipEmptyParts);
     QString command = tokens[0];
+
     if (command == "MYTH_PROTO_VERSION")
     {
         if (tokens.size() < 2)
@@ -650,6 +654,23 @@ void MainServer::ProcessRequestWork(MythSocket *sock)
     else if (command == "UNDELETE_RECORDING")
     {
         HandleUndeleteRecording(listline, pbs);
+    }
+    else if (command == "ADD_CHILD_INPUT")
+    {
+        QStringList reslist;
+        if (ismaster)
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                "ADD_CHILD_INPUT command received in master context");
+            reslist << QString("ERROR: Called in master context");
+        }
+        else if (tokens.size() != 2)
+            reslist << "ERROR: Bad ADD_CHILD_INPUT request";
+        else if (HandleAddChildInput(tokens[1].toUInt()))
+            reslist << "OK";
+        else
+            reslist << QString("ERROR: Failed to add child input");
+        SendResponse(pbs->getSocket(), reslist);
     }
     else if (command == "RESCHEDULE_RECORDINGS")
     {
@@ -1271,6 +1292,37 @@ void MainServer::customEvent(QEvent *e)
             return;
         }
 
+        if (me->Message().startsWith("STOP_RECORDING"))
+        {
+            QStringList tokens = me->Message().split(" ",
+                                                     QString::SkipEmptyParts);
+
+
+            if (tokens.size() < 3 || tokens.size() > 3)
+            {
+                LOG(VB_GENERAL, LOG_ERR, LOC +
+                    QString("Bad STOP_RECORDING message: %1")
+                        .arg(me->Message()));
+                return;
+            }
+
+            QDateTime startts = MythDate::fromString(tokens[2]);
+            RecordingInfo recInfo(tokens[1].toUInt(), startts);
+
+            if (recInfo.GetChanID())
+            {
+                DoHandleStopRecording(recInfo, NULL);
+            }
+            else
+            {
+                LOG(VB_GENERAL, LOG_ERR, LOC +
+                    QString("Cannot find program info for '%1' while "
+                            "attempting to stop recording.").arg(me->Message()));
+            }
+
+            return;
+        }
+
         if ((me->Message().startsWith("DELETE_RECORDING")) ||
             (me->Message().startsWith("FORCE_DELETE_RECORDING")))
         {
@@ -1336,6 +1388,20 @@ void MainServer::customEvent(QEvent *e)
                             "attempting to undelete.").arg(me->Message()));
             }
 
+            return;
+        }
+
+        if (me->Message().startsWith("ADD_CHILD_INPUT"))
+        {
+            QStringList tokens = me->Message()
+                .split(" ", QString::SkipEmptyParts);
+            if (!ismaster)
+                LOG(VB_GENERAL, LOG_ERR, LOC +
+                    "ADD_CHILD_INPUT event received in slave context");
+            else if (tokens.size() != 2)
+                LOG(VB_GENERAL, LOG_ERR, LOC + "Bad ADD_CHILD_INPUT message");
+            else
+                HandleAddChildInput(tokens[1].toUInt());
             return;
         }
 
@@ -1623,10 +1689,17 @@ void MainServer::HandleVersion(MythSocket *socket, const QStringList &slist)
  *
  * \par        ANN Monitor  \e host \e wantevents
  * Register \e host as a client, and allow shutdown of the socket
+ *
  * \par        ANN SlaveBackend \e IPaddress
+ * Register \e host as a slave backend, and allow shutdown of the socket
+ *
  * \par        ANN MediaServer \e IPaddress
- * \par        ANN FileTransfer stringlist(\e hostname, \e filename)
- * \par        ANN FileTransfer stringlist(\e hostname, \e filename) \e useReadahead \e retries
+ * Register \e host as a media server
+ *
+ * \par        ANN FileTransfer stringlist(\e hostname, \e filename \e storageGroup)
+ * \par        ANN FileTransfer stringlist(\e hostname, \e filename \e storageGroup) \e writeMode
+ * \par        ANN FileTransfer stringlist(\e hostname, \e filename \e storageGroup) \e writeMode \e useReadahead
+ * \par        ANN FileTransfer stringlist(\e hostname, \e filename \e storageGroup) \e writeMode \e useReadahead \e retries
  */
 void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
                                 MythSocket *socket)
@@ -1791,6 +1864,7 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
         }
 
         bool wasAsleep = true;
+        TVRec::inputsLock.lockForRead();
         QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
         for (; iter != encoderList->end(); ++iter)
         {
@@ -1802,6 +1876,7 @@ void MainServer::HandleAnnounce(QStringList &slist, QStringList commands,
                 elink->SetSocket(pbs);
             }
         }
+        TVRec::inputsLock.unlock();
 
         if (!wasAsleep && m_sched)
             m_sched->ReschedulePlace("SlaveConnected");
@@ -2266,8 +2341,8 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
 {
     // sleep a little to let frontends reload the recordings list
     // after deleting a recording, then we can hammer the DB and filesystem
-    sleep(3);
-    usleep(random()%2000);
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    std::this_thread::sleep_for(std::chrono::milliseconds(random()%2));
 
     deletelock.lock();
 
@@ -2355,7 +2430,7 @@ void MainServer::DoDeleteThread(DeleteStruct *ds)
     else
     {
         delete_file_immediately(ds->m_filename, followLinks, false);
-        sleep(2);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
         if (checkFile.exists())
             errmsg = true;
     }
@@ -2506,7 +2581,7 @@ void MainServer::DoDeleteInDB(DeleteStruct *ds)
             QString("Error deleting recorded entry for %1.") .arg(logInfo));
     }
 
-    sleep(1);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // Notify the frontend so it can requery for Free Space
     QString msg = QString("RECORDING_LIST_CHANGE DELETE %1")
@@ -2514,7 +2589,7 @@ void MainServer::DoDeleteInDB(DeleteStruct *ds)
     gCoreContext->SendEvent(MythEvent(msg));
 
     // sleep a little to let frontends reload the recordings list
-    sleep(3);
+    std::this_thread::sleep_for(std::chrono::seconds(3));
 
     query.prepare("DELETE FROM recordedmarkup "
                   "WHERE chanid = :CHANID AND starttime = :STARTTIME;");
@@ -2697,7 +2772,7 @@ bool MainServer::TruncateAndClose(ProgramInfo *pginfo, int fd,
 
         count++;
 
-        usleep(sleep_time * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
     }
 
     bool ok = (0 == close(fd));
@@ -2734,6 +2809,7 @@ void MainServer::HandleCheckRecordingActive(QStringList &slist,
     }
     else
     {
+        TVRec::inputsLock.lockForRead();
         QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
         for (; iter != encoderList->end(); ++iter)
         {
@@ -2742,6 +2818,7 @@ void MainServer::HandleCheckRecordingActive(QStringList &slist,
             if (elink->IsLocal() && elink->MatchesRecording(&pginfo))
                 result = iter.key();
         }
+        TVRec::inputsLock.unlock();
     }
 
     QStringList outputlist( QString::number(result) );
@@ -2806,10 +2883,12 @@ void MainServer::DoHandleStopRecording(
 
             if (num > 0)
             {
+                TVRec::inputsLock.lockForRead();
                 if (encoderList->contains(num))
                 {
                     (*encoderList)[num]->StopRecording();
                 }
+                TVRec::inputsLock.unlock();
                 if (m_sched)
                     m_sched->UpdateRecStatus(&recinfo);
             }
@@ -2836,6 +2915,7 @@ void MainServer::DoHandleStopRecording(
 
     int recnum = -1;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
     for (; iter != encoderList->end(); ++iter)
     {
@@ -2850,7 +2930,7 @@ void MainServer::DoHandleStopRecording(
             while (elink->IsBusyRecording() ||
                    elink->GetState() == kState_ChangingState)
             {
-                usleep(100);
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
 
             if (ismaster)
@@ -2860,6 +2940,7 @@ void MainServer::DoHandleStopRecording(
             }
         }
     }
+    TVRec::inputsLock.unlock();
 
     if (pbssock)
     {
@@ -3100,24 +3181,147 @@ void MainServer::DoHandleUndeleteRecording(
     SendResponse(pbssock, outputlist);
 }
 
-void MainServer::HandleRescheduleRecordings(const QStringList &request,
+/**
+ * \fn MainServer::HandleRescheduleRecordings
+ *
+ * This function processes the received network protocol message to
+ * reschedule recordings. It ignores the parameters supplied by the
+ * caller and always asks the scheduling system to reschedule all
+ * recordings.
+ *
+ * The network message should look like this:
+ *
+ * RESCHEDULE_RECORDINGS[]:[]MATCH 0 0 0 - MythUtilCommand
+ *
+ * The five values after the 'MATCH' keyword control which recordings
+ * should be rescheduled. They are described in the BuildMatchRequest
+ * function.
+ *
+ * \sa ScheduledRecording::BuildMatchRequest
+ *
+ * \param request Ignored. This function doesn't parse any additional
+ *                parameters.
+ * \param pbs     The socket used to send the response.
+ *
+ * \addtogroup myth_network_protocol
+ * \par        RESCHEDULE_RECORDINGS
+ * Requests that all recordings after the current time be rescheduled.
+ */
+void MainServer::HandleRescheduleRecordings(const QStringList &/*request*/,
                                             PlaybackSock *pbs)
 {
-    QStringList result;
-    if (m_sched)
-    {
-        m_sched->Reschedule(request);
-        result = QStringList( QString::number(1) );
-    }
-    else
-        result = QStringList( QString::number(0) );
+     ScheduledRecording::RescheduleMatch(0, 0, 0, QDateTime(),
+                                         "HandleRescheduleRecordings");
 
     if (pbs)
     {
+        QStringList result  = QStringList( QString::number(1) );
         MythSocket *pbssock = pbs->getSocket();
         if (pbssock)
             SendResponse(pbssock, result);
     }
+}
+
+bool MainServer::HandleAddChildInput(uint inputid)
+{
+    // If we're already trying to add a child input, ignore this
+    // attempt.  The scheduler will keep asking until it gets added.
+    // This makes the whole operation asynchronous and allows the
+    // scheduler to continue servicing other recordings.
+    if (!m_addChildInputLock.tryLock())
+    {
+        LOG(VB_GENERAL, LOG_INFO, LOC + "HandleAddChildInput: Already locked");
+        return false;
+    }
+
+    LOG(VB_GENERAL, LOG_INFO, LOC +
+        QString("HandleAddChildInput: Handling input %1").arg(inputid));
+
+    TVRec::inputsLock.lockForWrite();
+
+    if (ismaster)
+    {
+        // First, add the new input to the database.
+        uint childid = CardUtil::AddChildInput(inputid);
+        if (!childid)
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("HandleAddChildInput: "
+                        "Failed to add child to input %1").arg(inputid));
+            TVRec::inputsLock.unlock();
+            m_addChildInputLock.unlock();
+            return false;
+        }
+
+        LOG(VB_GENERAL, LOG_INFO, LOC +
+            QString("HandleAddChildInput: Added child input %1").arg(childid));
+
+        // Next, create the master TVRec and/or EncoderLink.
+        QString localhostname = gCoreContext->GetHostName();
+        QString hostname = CardUtil::GetHostname(childid);
+
+        if (hostname == localhostname)
+        {
+            TVRec *tv = new TVRec(childid);
+            if (!tv || !tv->Init())
+            {
+                LOG(VB_GENERAL, LOG_ERR, LOC +
+                    QString("HandleAddChildInput: "
+                            "Failed to initialize input %1").arg(childid));
+                delete tv;
+                CardUtil::DeleteInput(childid);
+                return false;
+            }
+
+            EncoderLink *enc = new EncoderLink(childid, tv);
+            (*encoderList)[childid] = enc;
+        }
+        else
+        {
+            EncoderLink *enc = (*encoderList)[inputid];
+            if (!enc->AddChildInput(childid))
+            {
+                LOG(VB_GENERAL, LOG_ERR, LOC +
+                    QString("HandleAddChildInput: "
+                            "Failed to add remote input %1").arg(childid));
+                CardUtil::DeleteInput(childid);
+                return false;
+            }
+
+            PlaybackSock *pbs = enc->GetSocket();
+            enc = new EncoderLink(childid, NULL, hostname);
+            enc->SetSocket(pbs);
+            (*encoderList)[childid] = enc;
+        }
+
+        // Finally, add the new input to the Scheduler.
+        m_sched->AddChildInput(inputid, childid);
+    }
+    else
+    {
+        // Create the slave TVRec and EncoderLink.
+        TVRec *tv = new TVRec(inputid);
+        if (!tv || !tv->Init())
+        {
+            LOG(VB_GENERAL, LOG_ERR, LOC +
+                QString("HandleAddChildInput: "
+                        "Failed to initialize input %1").arg(inputid));
+            delete tv;
+            return false;
+        }
+
+        EncoderLink *enc = new EncoderLink(inputid, tv);
+        (*encoderList)[inputid] = enc;
+    }
+
+    TVRec::inputsLock.unlock();
+    m_addChildInputLock.unlock();
+
+    LOG(VB_GENERAL, LOG_ERR, LOC +
+        QString("HandleAddChildInput: "
+                "Succesffuly handled input %1").arg(inputid));
+
+    return true;
 }
 
 void MainServer::HandleForgetRecording(QStringList &slist, PlaybackSock *pbs)
@@ -3137,7 +3341,7 @@ void MainServer::HandleForgetRecording(QStringList &slist, PlaybackSock *pbs)
     }
 }
 
-/*
+/**
  * \addtogroup myth_network_protocol
  * \par        GO_TO_SLEEP
  * Commands a slave to go to sleep
@@ -3414,9 +3618,11 @@ void MainServer::HandleQueryFileHash(QStringList &slist, PlaybackSock *pbs)
       case 4:
         if (!slist[3].isEmpty())
             hostname = slist[3];
+        [[clang::fallthrough]];
       case 3:
         if (slist[2].isEmpty())
             storageGroup = slist[2];
+        [[clang::fallthrough]];
       case 2:
         filename = slist[1];
         if (filename.isEmpty() ||
@@ -3455,26 +3661,9 @@ void MainServer::HandleQueryFileHash(QStringList &slist, PlaybackSock *pbs)
             hash = slave->GetFileHash(filename, storageGroup);
             slave->DecrRef();
         }
-        else
-        {
-            MSqlQuery query(MSqlQuery::InitCon());
-            query.prepare("SELECT hostname FROM settings "
-                           "WHERE value='BackendServerIP' "
-                              "OR value='BackendServerIP6' "
-                             "AND data=:HOSTNAME;");
-            query.bindValue(":HOSTNAME", hostname);
-
-            if (query.exec() && query.next())
-            {
-                hostname = query.value(0).toString();
-                slave = GetMediaServerByHostname(hostname);
-                if (slave)
-                {
-                    hash = slave->GetFileHash(filename, storageGroup);
-                    slave->DecrRef();
-                }
-            }
-        }
+        // I deleted the incorrect SQL select that was supposed to get
+        // host name from ip address. Since it cannot work and has
+        // been there 6 years I assume it is not important.
     }
 
     res << hash;
@@ -3706,12 +3895,10 @@ void MainServer::HandleSGGetFileList(QStringList &sList,
                 " path = %3 wanthost = %4")
             .arg(groupname).arg(host).arg(path).arg(wantHost));
 
-    QString addr4 = gCoreContext->GetBackendServerIP4();
-    QString addr6 = gCoreContext->GetBackendServerIP6();
+    QString addr = gCoreContext->GetBackendServerIP();
 
     if ((host.toLower() == wantHost.toLower()) ||
-        (!addr4.isEmpty() && addr4 == wantHostaddr.toString()) ||
-        (!addr6.isEmpty() && addr6 == wantHostaddr.toString()))
+        (!addr.isEmpty() && addr == wantHostaddr.toString()))
     {
         StorageGroup sg(groupname, host);
         LOG(VB_FILE, LOG_INFO, LOC + "HandleSGGetFileList: Getting local info");
@@ -3990,12 +4177,10 @@ void MainServer::HandleSGFileQuery(QStringList &sList,
     LOG(VB_FILE, LOG_INFO, LOC + QString("HandleSGFileQuery: %1")
             .arg(gCoreContext->GenMythURL(wantHost, 0, filename, groupname)));
 
-    QString addr4 = gCoreContext->GetBackendServerIP4();
-    QString addr6 = gCoreContext->GetBackendServerIP6();
+    QString addr = gCoreContext->GetBackendServerIP();
 
     if ((host.toLower() == wantHost.toLower()) ||
-        (!addr4.isEmpty() && addr4 == wantHostaddr.toString()) ||
-        (!addr6.isEmpty() && addr6 == wantHostaddr.toString()))
+        (!addr.isEmpty() && addr == wantHostaddr.toString()))
     {
         LOG(VB_FILE, LOG_INFO, LOC + "HandleSGFileQuery: Getting local info");
         StorageGroup sg(groupname, gCoreContext->GetHostName(), allowFallback);
@@ -4042,6 +4227,7 @@ void MainServer::HandleLockTuner(PlaybackSock *pbs, int cardid)
     EncoderLink *encoder = NULL;
     QString enchost;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
     for (; iter != encoderList->end(); ++iter)
     {
@@ -4065,6 +4251,7 @@ void MainServer::HandleLockTuner(PlaybackSock *pbs, int cardid)
             break;
         }
     }
+    TVRec::inputsLock.unlock();
 
     if (encoder)
     {
@@ -4121,6 +4308,7 @@ void MainServer::HandleFreeTuner(int cardid, PlaybackSock *pbs)
     QStringList strlist;
     EncoderLink *encoder = NULL;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->find(cardid);
     if (iter == encoderList->end())
     {
@@ -4142,6 +4330,7 @@ void MainServer::HandleFreeTuner(int cardid, PlaybackSock *pbs)
 
         strlist << "OK";
     }
+    TVRec::inputsLock.unlock();
 
     SendResponse(pbssock, strlist);
 }
@@ -4167,6 +4356,7 @@ void MainServer::HandleGetFreeInputInfo(PlaybackSock *pbs,
 
     // Lopp over each encoder and divide the inputs into busy and free
     // lists.
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
     for (; iter != encoderList->end(); ++iter)
     {
@@ -4205,6 +4395,7 @@ void MainServer::HandleGetFreeInputInfo(PlaybackSock *pbs,
             freeinputs.push_back(info);
         }
     }
+    TVRec::inputsLock.unlock();
 
     // Loop over each busy input and restrict or delete any free
     // inputs that are in the same group.
@@ -4286,15 +4477,18 @@ void MainServer::HandleRecorderQuery(QStringList &slist, QStringList &commands,
 
     int recnum = commands[1].toInt();
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->find(recnum);
     if (iter == encoderList->end())
     {
+        TVRec::inputsLock.unlock();
         LOG(VB_GENERAL, LOG_ERR, LOC + "MainServer::HandleRecorderQuery() " +
             QString("Unknown encoder: %1").arg(recnum));
         QStringList retlist( "bad" );
         SendResponse(pbssock, retlist);
         return;
     }
+    TVRec::inputsLock.unlock();
 
     QString command = slist[1];
 
@@ -4651,15 +4845,18 @@ void MainServer::HandleSetNextLiveTVDir(QStringList &commands,
 
     int recnum = commands[1].toInt();
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->find(recnum);
     if (iter == encoderList->end())
     {
+        TVRec::inputsLock.unlock();
         LOG(VB_GENERAL, LOG_ERR, LOC + "MainServer::HandleSetNextLiveTVDir() " +
             QString("Unknown encoder: %1").arg(recnum));
         QStringList retlist( "bad" );
         SendResponse(pbssock, retlist);
         return;
     }
+    TVRec::inputsLock.unlock();
 
     EncoderLink *enc = *iter;
     enc->SetNextLiveTVDir(commands[2]);
@@ -4688,6 +4885,7 @@ void MainServer::HandleSetChannelInfo(QStringList &slist, PlaybackSock *pbs)
         return;
     }
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::iterator it = encoderList->begin();
     for (; it != encoderList->end(); ++it)
     {
@@ -4697,6 +4895,7 @@ void MainServer::HandleSetChannelInfo(QStringList &slist, PlaybackSock *pbs)
                                         callsign, channum, channame, xmltv);
         }
     }
+    TVRec::inputsLock.unlock();
 
     retlist << ((ok) ? "1" : "0");
     SendResponse(pbssock, retlist);
@@ -4710,9 +4909,11 @@ void MainServer::HandleRemoteEncoder(QStringList &slist, QStringList &commands,
     int recnum = commands[1].toInt();
     QStringList retlist;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->find(recnum);
     if (iter == encoderList->end())
     {
+        TVRec::inputsLock.unlock();
         LOG(VB_GENERAL, LOG_ERR, LOC +
             QString("HandleRemoteEncoder(cmd %1) ").arg(slist[1]) +
             QString("Unknown encoder: %1").arg(recnum));
@@ -4720,6 +4921,7 @@ void MainServer::HandleRemoteEncoder(QStringList &slist, QStringList &commands,
         SendResponse(pbssock, retlist);
         return;
     }
+    TVRec::inputsLock.unlock();
 
     EncoderLink *enc = *iter;
 
@@ -4760,7 +4962,11 @@ void MainServer::HandleRemoteEncoder(QStringList &slist, QStringList &commands,
 
         retlist << QString::number(enc->StartRecording(&pginfo));
         retlist << QString::number(pginfo.GetRecordingID());
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
         retlist << QString::number(pginfo.GetRecordingStartTime().toTime_t());
+#else
+        retlist << QString::number(pginfo.GetRecordingStartTime().toSecsSinceEpoch());
+#endif
     }
     else if (command == "GET_RECORDING_STATUS")
     {
@@ -4877,6 +5083,7 @@ size_t MainServer::GetCurrentMaxBitrate(void)
 {
     size_t totalKBperMin = 0;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink*>::iterator it = encoderList->begin();
     for (; it != encoderList->end(); ++it)
     {
@@ -4893,6 +5100,7 @@ size_t MainServer::GetCurrentMaxBitrate(void)
         LOG(VB_FILE, LOG_INFO, LOC + QString("Cardid %1: max bitrate %2 KB/min")
                 .arg(enc->GetInputID()).arg(thisKBperMin));
     }
+    TVRec::inputsLock.unlock();
 
     LOG(VB_FILE, LOG_INFO, LOC +
         QString("Maximal bitrate of busy encoders is %1 KB/min")
@@ -5382,7 +5590,11 @@ void MainServer::HandleCutMapQuery(const QString &chanid,
 
     frm_dir_map_t markMap;
     frm_dir_map_t::const_iterator it;
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
     QDateTime recstartdt = MythDate::fromTime_t(starttime.toULongLong());
+#else
+    QDateTime recstartdt = MythDate::fromSecsSinceEpoch(starttime.toLongLong());
+#endif
     QStringList retlist;
     int rowcnt = 0;
 
@@ -5460,7 +5672,11 @@ void MainServer::HandleBookmarkQuery(const QString &chanid,
     if (pbs)
         pbssock = pbs->getSocket();
 
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
     QDateTime recstartts = MythDate::fromTime_t(starttime.toULongLong());
+#else
+    QDateTime recstartts = MythDate::fromSecsSinceEpoch(starttime.toLongLong());
+#endif
 
     uint64_t bookmark = ProgramInfo::QueryBookmark(
         chanid.toUInt(), recstartts);
@@ -5493,7 +5709,11 @@ void MainServer::HandleSetBookmark(QStringList &tokens,
     QString starttime = tokens[2];
     long long bookmark = tokens[3].toLongLong();
 
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
     QDateTime recstartts = MythDate::fromTime_t(starttime.toULongLong());
+#else
+    QDateTime recstartts = MythDate::fromSecsSinceEpoch(starttime.toLongLong());
+#endif
     QStringList retlist;
 
     ProgramInfo pginfo(chanid.toUInt(), recstartts);
@@ -6688,7 +6908,25 @@ void MainServer::HandleMusicFindLyrics(const QStringList &slist, PlaybackSock *p
         SendResponse(pbssock, strlist);
 }
 
-void MainServer::HandleMusicGetLyricGrabbers(const QStringList &slist, PlaybackSock *pbs)
+/**
+ * \fn MainServer::HandleMusicGetLyricGrabbers
+ *
+ * This function processes the received network protocol message to
+ * get the names of all scripts the grab music lyrics. It will check
+ * for the existence of the script directory and of scripts.  All
+ * scripts found are parsed for version numbers. The names and version
+ * numbers of all found scripts are returned to the caller.
+ *
+ * \param slist   Ignored. This function doesn't parse any additional
+ *                parameters.
+ * \param pbs     The socket used to send the response.
+ *
+ * \addtogroup myth_network_protocol
+ * \par        MUSIC_LYRICS_GETGRABBERS
+ * Get the names and version numbers of all scripts to grab music
+ * lyrics.
+ */
+void MainServer::HandleMusicGetLyricGrabbers(const QStringList &/*slist*/, PlaybackSock *pbs)
 {
     QStringList strlist;
 
@@ -6955,6 +7193,7 @@ void MainServer::HandleGetRecorderNum(QStringList &slist, PlaybackSock *pbs)
 
     EncoderLink *encoder = NULL;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
     for (; iter != encoderList->end(); ++iter)
     {
@@ -6966,6 +7205,7 @@ void MainServer::HandleGetRecorderNum(QStringList &slist, PlaybackSock *pbs)
             encoder = elink;
         }
     }
+    TVRec::inputsLock.unlock();
 
     QStringList strlist( QString::number(retval) );
 
@@ -7000,10 +7240,11 @@ void MainServer::HandleGetRecorderFromNum(QStringList &slist,
     EncoderLink *encoder = NULL;
     QStringList strlist;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->find(recordernum);
-
     if (iter != encoderList->end())
         encoder =  (*iter);
+    TVRec::inputsLock.unlock();
 
     if (encoder && encoder->IsConnected())
     {
@@ -7124,6 +7365,7 @@ void MainServer::HandleIsRecording(QStringList &slist, PlaybackSock *pbs)
     int LiveTVRecordingsInProgress = 0;
     QStringList retlist;
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
     for (; iter != encoderList->end(); ++iter)
     {
@@ -7138,6 +7380,7 @@ void MainServer::HandleIsRecording(QStringList &slist, PlaybackSock *pbs)
             delete info;
         }
     }
+    TVRec::inputsLock.unlock();
 
     retlist << QString::number(RecordingsInProgress);
     retlist << QString::number(LiveTVRecordingsInProgress);
@@ -7200,7 +7443,7 @@ void MainServer::HandleGenPreviewPixmap(QStringList &slist, PlaybackSock *pbs)
         (time = (*it).toLongLong()), ++it;
     if (it != slist.end())
         (outputfile = *it), ++it;
-    outputfile = (outputfile == "<EMPTY>") ? QString::null : outputfile;
+    outputfile = (outputfile == "<EMPTY>") ? QString() : outputfile;
     if (it != slist.end())
     {
         width = (*it).toInt(&ok); ++it;
@@ -7310,7 +7553,11 @@ void MainServer::HandlePixmapLastModified(QStringList &slist, PlaybackSock *pbs)
              slave->DecrRef();
 
              strlist = (slavetime.isValid()) ?
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
                  QStringList(QString::number(slavetime.toTime_t())) :
+#else
+                 QStringList(QString::number(slavetime.toSecsSinceEpoch())) :
+#endif
                  QStringList("BAD");
 
              SendResponse(pbssock, strlist);
@@ -7342,7 +7589,14 @@ void MainServer::HandlePixmapLastModified(QStringList &slist, PlaybackSock *pbs)
     if (finfo.exists())
     {
         QDateTime lastmodified = finfo.lastModified();
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
         strlist = QStringList(QString::number(lastmodified.toTime_t()));
+#else
+        if (lastmodified.isValid())
+            strlist = QStringList(QString::number(lastmodified.toSecsSinceEpoch()));
+        else
+            strlist = QStringList(QString::number((uint)-1));
+#endif
     }
     else
         strlist = QStringList( "BAD" );
@@ -7365,8 +7619,12 @@ void MainServer::HandlePixmapGetIfModified(
     }
 
     QDateTime cachemodified;
-    if (slist[1].toInt() != -1)
+    if (!slist[1].isEmpty() && (slist[1].toInt() != -1))
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
         cachemodified = MythDate::fromTime_t(slist[1].toInt());
+#else
+        cachemodified = MythDate::fromSecsSinceEpoch(slist[1].toLongLong());
+#endif
 
     int max_file_size = slist[2].toInt();
 
@@ -7405,7 +7663,14 @@ void MainServer::HandlePixmapGetIfModified(
                     LOG(VB_FILE, LOG_INFO, LOC +
                         QString("Read preview file '%1'")
                             .arg(pginfo.GetPathname()));
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
                     strlist += QString::number(lastmodified.toTime_t());
+#else
+                    if (lastmodified.isValid())
+                        strlist += QString::number(lastmodified.toSecsSinceEpoch());
+                    else
+                        strlist += QString::number((uint)-1);
+#endif
                     strlist += QString::number(data.size());
                     strlist += QString::number(qChecksum(data.constData(),
                                                data.size()));
@@ -7440,7 +7705,14 @@ void MainServer::HandlePixmapGetIfModified(
             }
             else
             {
+#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
                 strlist += QString::number(lastmodified.toTime_t());
+#else
+                if (lastmodified.isValid())
+                    strlist += QString::number(lastmodified.toSecsSinceEpoch());
+                else
+                    strlist += QString::number((uint)-1);
+#endif
             }
 
             SendResponse(pbssock, strlist);
@@ -7561,6 +7833,7 @@ void MainServer::connectionClosed(MythSocket *socket)
                         .arg(pbs->getHostname()));
 
                 bool isFallingAsleep = true;
+                TVRec::inputsLock.lockForRead();
                 QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
                 for (; iter != encoderList->end(); ++iter)
                 {
@@ -7575,6 +7848,7 @@ void MainServer::connectionClosed(MythSocket *socket)
                             disconnectedSlaves.push_back(elink->GetInputID());
                     }
                 }
+                TVRec::inputsLock.unlock();
                 if (m_sched && !isFallingAsleep)
                     needsReschedule = true;
 
@@ -7602,6 +7876,7 @@ void MainServer::connectionClosed(MythSocket *socket)
                 chain->DelHostSocket(sock);
                 if (chain->HostSocketCount() == 0)
                 {
+                    TVRec::inputsLock.lockForRead();
                     QMap<int, EncoderLink *>::iterator it =
                         encoderList->begin();
                     for (; it != encoderList->end(); ++it)
@@ -7610,7 +7885,7 @@ void MainServer::connectionClosed(MythSocket *socket)
                         if (enc->IsLocal())
                         {
                             while (enc->GetState() == kState_ChangingState)
-                                usleep(500);
+                                std::this_thread::sleep_for(std::chrono::microseconds(500));
 
                             if (enc->IsBusy() &&
                                 enc->GetChainID() == chain->GetID())
@@ -7619,6 +7894,7 @@ void MainServer::connectionClosed(MythSocket *socket)
                             }
                         }
                     }
+                    TVRec::inputsLock.unlock();
                     DeleteChain(chain);
                 }
             }
@@ -7642,6 +7918,16 @@ void MainServer::connectionClosed(MythSocket *socket)
             // delay handling the disconnect until a little later. #9885
             if (!disconnectedSlaves.isEmpty())
                 SendSlaveDisconnectedEvent(disconnectedSlaves, needsReschedule);
+            else
+            {
+                // During idle periods customEvent() might never be called,
+                // leading to an increasing number of closed sockets in
+                // decrRefSocketList.  Sending an event here makes sure that
+                // customEvent() is called and that the closed sockets are
+                // deleted.
+                MythEvent me("LOCAL_CONNECTION_CLOSED");
+                gCoreContext->dispatch(me);
+            }
 
             return;
         }
@@ -7983,6 +8269,7 @@ void MainServer::reconnectTimeout(void)
 
     QStringList strlist( str );
 
+    TVRec::inputsLock.lockForRead();
     QMap<int, EncoderLink *>::Iterator iter = encoderList->begin();
     for (; iter != encoderList->end(); ++iter)
     {
@@ -8001,6 +8288,7 @@ void MainServer::reconnectTimeout(void)
             dummy.ToStringList(strlist);
         }
     }
+    TVRec::inputsLock.unlock();
 
     // Calling SendReceiveStringList() with callbacks enabled is asking for
     // trouble, our reply might be swallowed by readyRead
@@ -8117,4 +8405,3 @@ void MainServer::SendSlaveDisconnectedEvent(
 }
 
 /* vim: set expandtab tabstop=4 shiftwidth=4: */
-

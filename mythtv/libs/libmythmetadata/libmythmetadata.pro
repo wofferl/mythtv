@@ -1,9 +1,6 @@
 include ( ../../settings.pro )
 
-QT += network xml sql
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += widgets
-}
+QT += network xml sql widgets
 
 TEMPLATE = lib
 TARGET = mythmetadata-$$LIBVERSION
@@ -42,7 +39,8 @@ SOURCES += musicfilescanner.cpp metadatagrabber.cpp lyricsdata.cpp
 
 INCLUDEPATH += ../libmythbase ../libmythtv
 INCLUDEPATH += ../.. ../ ./ ../libmythui
-INCLUDEPATH += ../../external/FFmpeg ../libmyth  ../../external/libmythbluray
+INCLUDEPATH += ../../external/FFmpeg ../libmyth  ../../external/libmythbluray/src
+INCLUDEPATH += ../libmythservicecontracts
 
 # for TagLib
 INCLUDEPATH += $${CONFIG_TAGLIB_INCLUDES}
@@ -50,6 +48,7 @@ INCLUDEPATH += $${CONFIG_TAGLIB_INCLUDES}
 DEPENDPATH += ../ ../libmythui ../libmythbase
 DEPENDPATH += ../libmythtv ../libmyth
 DEPENDPATH += ../../external/libmythbluray
+DEPENDPATH += ../libmythservicecontracts
 
 LIBS += -L../libmythbase           -lmythbase-$${LIBVERSION}
 LIBS += -L../libmythui           -lmythui-$${LIBVERSION}
@@ -63,6 +62,7 @@ LIBS += -L../libmyth              -lmyth-$${LIBVERSION}
 LIBS += -L../libmythtv              -lmythtv-$${LIBVERSION}
 LIBS += -L../../external/libmythbluray     -lmythbluray-$${LIBVERSION}
 LIBS += -L../../external/FFmpeg/libswscale -lmythswscale
+LIBS += -L../../external/libudfread -lmythudfread-$${LIBVERSION}
 
 # for TagLib
 LIBS += $${CONFIG_TAGLIB_LIBS}
@@ -125,3 +125,10 @@ INCLUDEPATH += $$POSTINC
 include ( ../libs-targetfix.pro )
 
 LIBS += $$EXTRA_LIBS $$LATE_LIBS -lexiv2
+
+test_clean.commands = -cd test/ && $(MAKE) -f Makefile clean
+clean.depends = test_clean
+QMAKE_EXTRA_TARGETS += test_clean clean
+test_distclean.commands = -cd test/ && $(MAKE) -f Makefile distclean
+distclean.depends = test_distclean
+QMAKE_EXTRA_TARGETS += test_distclean distclean

@@ -2,10 +2,10 @@
 // Program Name: rttiServices.h
 // Created     : July 25, 2014
 //
-// Purpose - Myth Services API Interface definition 
+// Purpose - Myth Services API Interface definition
 //
 // Copyright (c) 2014 David Blain <dblain@mythtv.org>
-//                                          
+//
 // Licensed under the GPL v2 or later, see COPYING for details
 //
 //////////////////////////////////////////////////////////////////////////////
@@ -42,7 +42,7 @@ class SERVICE_PUBLIC RttiServices : public Service  //, public QScriptable ???
         // Must call InitializeCustomTypes for each unique Custom Type used
         // in public slots below.
 
-        RttiServices( QObject *parent = 0 ) : Service( parent )
+        explicit RttiServices( QObject *parent = 0 ) : Service( parent )
         {
             DTC::Enum     ::InitializeCustomTypes();
         }
@@ -53,4 +53,3 @@ class SERVICE_PUBLIC RttiServices : public Service  //, public QScriptable ???
 };
 
 #endif
-

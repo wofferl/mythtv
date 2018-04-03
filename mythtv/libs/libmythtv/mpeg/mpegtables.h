@@ -154,7 +154,7 @@ class MTV_PUBLIC StreamID
         MPEG2IPMP      = 0x1a, ///< ISO 13818-10 Digital Restrictions Mangment
         MPEG2IPMP2     = 0x7f, ///< ISO 13818-10 Digital Restrictions Mangment
 
-        Splice         = 0x86, ///< ANSI/SCTE 35 2007 
+        Splice         = 0x86, ///< ANSI/SCTE 35 2007
 
         // special id's, not actually ID's but can be used in FindPIDs
         AnyMask        = 0xFFFF0000,
@@ -426,7 +426,7 @@ class MTV_PUBLIC PSIPTable : public PESPacket
 
   public:
     /// Constructor for viewing a section, does not create it's own data
-    PSIPTable(const unsigned char *pesdata)
+    explicit PSIPTable(const unsigned char *pesdata)
         : PESPacket(pesdata)
     {
         // fixup wrong assumption about length for sections without CRC
@@ -438,13 +438,13 @@ class MTV_PUBLIC PSIPTable : public PESPacket
         // section_syntax_ind   1       1.0       8   should always be 1
         // private_indicator    1       1.1       9   should always be 1
     }
-    PSIPTable(const PESPacket& table) : PESPacket(table)
+    explicit PSIPTable(const PESPacket& table) : PESPacket(table)
     {
         // section_syntax_ind   1       1.0       8   should always be 1
         // private_indicator    1       1.1       9   should always be 1
     }
     // may be modified
-    PSIPTable(const TSPacket& table)
+    explicit PSIPTable(const TSPacket& table)
         : PESPacket()
     {
         // section_syntax_ind   1       1.0       8   should always be 1
@@ -585,7 +585,7 @@ class MTV_PUBLIC ProgramAssociationTable : public PSIPTable
         assert(TableID::PAT == TableID());
     }
 
-    ProgramAssociationTable(const PSIPTable &table) : PSIPTable(table)
+    explicit ProgramAssociationTable(const PSIPTable &table) : PSIPTable(table)
     {
         assert(TableID::PAT == TableID());
     }
@@ -663,7 +663,7 @@ class MTV_PUBLIC ProgramMapTable : public PSIPTable
         Parse();
     }
 
-    ProgramMapTable(const PSIPTable& table) : PSIPTable(table)
+    explicit ProgramMapTable(const PSIPTable& table) : PSIPTable(table)
     {
         assert(TableID::PMT == TableID());
         Parse();
@@ -818,7 +818,7 @@ class MTV_PUBLIC ProgramMapTable : public PSIPTable
 class MTV_PUBLIC ConditionalAccessTable : public PSIPTable
 {
   public:
-    ConditionalAccessTable(const PSIPTable &table) : PSIPTable(table)
+    explicit ConditionalAccessTable(const PSIPTable &table) : PSIPTable(table)
     {
     // Section            Bits   Start Byte sbit
     // -----------------------------------------
@@ -851,7 +851,7 @@ class MTV_PUBLIC ConditionalAccessTable : public PSIPTable
 class MTV_PUBLIC SpliceTimeView
 {
   public:
-    SpliceTimeView(const unsigned char *data) : _data(data) { }
+    explicit SpliceTimeView(const unsigned char *data) : _data(data) { }
     //   time_specified_flag    1  0.0
     bool IsTimeSpecified(void) const { return _data[0] & 0x80; }
     //   if (time_specified_flag == 1)
@@ -901,7 +901,7 @@ class MTV_PUBLIC SpliceScheduleView
     //     program_splice_flag  1 5.1 + _ptrs0[i]
     //     duration_flag        1 5.2 + _ptrs0[i]
     //     reserved             5 5.3 + _ptrs0[i]
-    //     if (program_splice_flag == ‘1’) 
+    //     if (program_splice_flag == ‘1’)
     //       utc_splice_time   32 6.0 + _ptrs0[i]
     //     else {
     //       component_count    8 6.0 + _ptrs0[i]
@@ -922,7 +922,7 @@ class MTV_PUBLIC SpliceScheduleView
 
   private:
     vector<const unsigned char*> _ptrs0;
-    vector<const unsigned char*> _ptrs1;    
+    vector<const unsigned char*> _ptrs1;
 };
 
 class MTV_PUBLIC SpliceInsertView
@@ -996,13 +996,16 @@ class MTV_PUBLIC SpliceInformationTable : public PSIPTable
         assert(TableID::SITscte == TableID());
         Parse();
     }
-    SpliceInformationTable(const PSIPTable &table) :
+    explicit SpliceInformationTable(const PSIPTable &table) :
         PSIPTable(table), _epilog(NULL)
     {
         assert(TableID::SITscte == TableID());
         Parse();
     }
     ~SpliceInformationTable() { ; }
+
+    void setSCTEPID(int ts_pid){scte_pid = ts_pid;}
+    int getSCTEPID(void) const {return scte_pid;}
 
     // ANCE/SCTE 35 2007
     //       Name             bits  loc  expected value
@@ -1129,7 +1132,7 @@ class MTV_PUBLIC SpliceInformationTable : public PSIPTable
     // this comment with private or reserved commands.
 
     // descriptor_loop_length  16   0.0 + _epilog
-    uint SpliceDescriptorsLength(uint i) const
+    uint SpliceDescriptorsLength(uint /*i*/) const
     {
         return (_epilog[0] << 8) | _epilog[1];
     }
@@ -1160,6 +1163,7 @@ class MTV_PUBLIC SpliceInformationTable : public PSIPTable
     vector<const unsigned char*> _ptrs0;
     vector<const unsigned char*> _ptrs1;
     const unsigned char *_epilog;
+    int scte_pid;
 };
 
 /** \class AdaptationFieldControl
@@ -1174,7 +1178,7 @@ class MTV_PUBLIC SpliceInformationTable : public PSIPTable
 class MTV_PUBLIC AdaptationFieldControl
 {
   public:
-    AdaptationFieldControl(const unsigned char* packet) : _data(packet) { ; }
+    explicit AdaptationFieldControl(const unsigned char* packet) : _data(packet) { ; }
 
     /** adaptation header length
      * (after which is payload data)         8   0.0

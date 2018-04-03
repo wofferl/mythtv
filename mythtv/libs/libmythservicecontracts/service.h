@@ -45,7 +45,7 @@ class SERVICE_PUBLIC Service : public QObject
 
     public:
 
-        inline Service( QObject *parent = NULL );
+        explicit inline Service( QObject *parent = NULL );
 
     public:
 
@@ -62,21 +62,16 @@ class SERVICE_PUBLIC Service : public QObject
 
         static bool ToBool( const QString &sVal );
 
+    public:
+
+        QList<QString> m_parsedParams; // lowercased
 };
 
 //////////////////////////////////////////////////////////////////////////////
 //
 //////////////////////////////////////////////////////////////////////////////
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-Q_DECLARE_METATYPE( QFileInfo )
-inline Service::Service(QObject *parent) : QObject(parent)
-{
-    qRegisterMetaType< QFileInfo >();
-}
-#else
 inline Service::Service(QObject *parent) : QObject(parent) {}
-#endif
 
 //////////////////////////////////////////////////////////////////////////////
 //

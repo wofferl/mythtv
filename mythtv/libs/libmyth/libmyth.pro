@@ -1,10 +1,7 @@
 include ( ../../settings.pro )
 
-QT += network xml sql script
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += widgets
+QT += network xml sql script widgets
 android: QT += androidextras
-}
 
 TEMPLATE = lib
 TARGET = myth-$$LIBVERSION
@@ -38,7 +35,7 @@ HEADERS += audio/audiooutputdigitalencoder.h audio/spdifencoder.h
 HEADERS += audio/audiosettings.h audio/audiooutputsettings.h audio/pink.h
 HEADERS += audio/volumebase.h audio/eldutils.h
 HEADERS += audio/audiooutputgraph.h
-HEADERS += backendselect.h dbsettings.h dbsettings_private.h dialogbox.h
+HEADERS += backendselect.h dbsettings.h dialogbox.h
 HEADERS += langsettings.h
 HEADERS += mythconfigdialogs.h mythconfiggroups.h
 HEADERS += mythcontext.h mythdialogs.h
@@ -46,6 +43,7 @@ HEADERS += mythexp.h mythmediamonitor.h
 HEADERS += mythwidgets.h mythwizard.h schemawizard.h
 HEADERS += output.h
 HEADERS += settings.h
+HEADERS += standardsettings.h
 HEADERS += visual.h
 HEADERS += storagegroupeditor.h
 HEADERS += mythterminal.h
@@ -54,6 +52,7 @@ HEADERS += rawsettingseditor.h
 HEADERS += programinfo.h          programinfoupdater.h
 HEADERS += programtypes.h         recordingtypes.h
 HEADERS += rssparse.h
+HEADERS += guistartup.h
 
 SOURCES += audio/audiooutput.cpp audio/audiooutputbase.cpp
 SOURCES += audio/spdifencoder.cpp audio/audiooutputdigitalencoder.cpp
@@ -71,6 +70,7 @@ SOURCES += mythmediamonitor.cpp
 SOURCES += mythwidgets.cpp mythwizard.cpp schemawizard.cpp
 SOURCES += output.cpp
 SOURCES += settings.cpp
+SOURCES += standardsettings.cpp
 SOURCES += storagegroupeditor.cpp
 SOURCES += mythterminal.cpp
 SOURCES += remoteutil.cpp
@@ -78,6 +78,7 @@ SOURCES += rawsettingseditor.cpp
 SOURCES += programinfo.cpp        programinfoupdater.cpp
 SOURCES += programtypes.cpp       recordingtypes.cpp
 SOURCES += rssparse.cpp
+SOURCES += guistartup.cpp
 
 # This stuff is not Qt5 compatible..
 # Really? It builds under Qt5, so lets let it
@@ -91,12 +92,14 @@ INCLUDEPATH += ../libmythbase
 INCLUDEPATH += ../.. ../ ./ ../libmythupnp ../libmythui
 INCLUDEPATH += ../../external/FFmpeg
 #INCLUDEPATH += ../../external/libmythbluray
+INCLUDEPATH += ../libmythservicecontracts
 INCLUDEPATH += $${POSTINC}
 DEPENDPATH += ../../external/libsamplerate ../../external/libmythsoundtouch ../../external/libmythbluray
 DEPENDPATH += ../libmythfreesurround
 DEPENDPATH += ../ ../libmythui ../libmythbase
 DEPENDPATH += ../libmythupnp
 DEPENDPATH += ./audio
+DEPENDPATH += ../libmythservicecontracts
 
 #LIBS += -L../../external/libmythbluray -lmythbluray-$$LIBVERSION
 LIBS += -L../../external/libsamplerate   -lmythsamplerate-$${LIBVERSION}
@@ -109,6 +112,7 @@ LIBS += -L../../external/FFmpeg/libswresample -lmythswresample
 LIBS += -L../../external/FFmpeg/libavutil  -lmythavutil
 LIBS += -L../../external/FFmpeg/libavcodec -lmythavcodec
 LIBS += -L../../external/FFmpeg/libavformat  -lmythavformat
+LIBS += -L../libmythservicecontracts         -lmythservicecontracts-$${LIBVERSION}
 
 !win32-msvc* {
     POST_TARGETDEPS += ../../external/libsamplerate/libmythsamplerate-$${MYTH_LIB_EXT}
@@ -123,7 +127,7 @@ LIBS += -L../../external/FFmpeg/libavformat  -lmythavformat
 # Install headers so that plugins can compile independently
 inc.path = $${PREFIX}/include/mythtv/
 inc.files  = dialogbox.h mythcontext.h
-inc.files += mythwidgets.h remotefile.h oldsettings.h volumecontrol.h
+inc.files += mythwidgets.h remotefile.h volumecontrol.h
 inc.files += settings.h mythdialogs.h
 inc.files += audio/audiooutput.h audio/audiosettings.h
 inc.files += audio/audiooutputsettings.h audio/audiooutpututil.h
@@ -138,6 +142,7 @@ inc.files += mythterminal.h       remoteutil.h
 inc.files += programinfo.h
 inc.files += programtypes.h       recordingtypes.h
 inc.files += rssparse.h
+inc.files += standardsettings.h
 
 # This stuff is not Qt5 compatible..
 # Really? It builds under Qt5, so lets let it
@@ -169,11 +174,7 @@ unix:!cygwin {
     SOURCES += mediamonitor-unix.cpp
     HEADERS += mediamonitor-unix.h
     !android {
-    contains(QT_VERSION, ^5\\.[0-9]\\..*) {
         using_qtdbus: QT += dbus
-    } else {
-        using_qtdbus: CONFIG += qdbus
-    }
     }
 }
 
@@ -271,3 +272,10 @@ LIBS += $$EXTRA_LIBS $$LATE_LIBS
 
 DISTFILES += \
     Makefile
+
+test_clean.commands = -cd test/ && $(MAKE) -f Makefile clean
+clean.depends = test_clean
+QMAKE_EXTRA_TARGETS += test_clean clean
+test_distclean.commands = -cd test/ && $(MAKE) -f Makefile distclean
+distclean.depends = test_distclean
+QMAKE_EXTRA_TARGETS += test_distclean distclean

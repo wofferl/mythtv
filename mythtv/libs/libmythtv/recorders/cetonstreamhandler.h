@@ -20,17 +20,14 @@
 
 class CetonStreamHandler;
 class CetonChannel;
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-class QUrl;
-#else
 class QUrlQuery;
-#endif
 
 class CetonStreamHandler : public IPTVStreamHandler
 {
   public:
-    static CetonStreamHandler *Get(const QString &devicename);
-    static void Return(CetonStreamHandler * & ref);
+    static CetonStreamHandler *Get(const QString &devicename,
+                                   int recorder_id = -1);
+    static void Return(CetonStreamHandler * & ref, int recorder_id = -1);
 
     bool IsConnected(void) const;
     bool IsCableCardInstalled() const { return _using_cablecard; };
@@ -44,7 +41,7 @@ class CetonStreamHandler : public IPTVStreamHandler
     uint GetProgramNumber(void) const;
 
   private:
-    CetonStreamHandler(const QString &);
+    explicit CetonStreamHandler(const QString &);
 
     bool Connect(void);
 
@@ -61,11 +58,7 @@ class CetonStreamHandler : public IPTVStreamHandler
     QString GetVar(const QString &section, const QString &variable) const;
     QStringList GetProgramList();
     bool HttpRequest(const QString &method, const QString &script,
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-                     const QUrl &params,
-#else
                      const QUrlQuery &params,
-#endif
                      QString &response, uint &status_code) const;
 
 
@@ -76,7 +69,7 @@ class CetonStreamHandler : public IPTVStreamHandler
     QString     _device_path;
     bool        _using_cablecard;
     bool        _connected;
-    bool	       _valid;
+    bool               _valid;
 
     uint        _last_frequency;
     QString     _last_modulation;

@@ -21,9 +21,9 @@
 
 #include "mythlogging.h"
 #include "mythcorecontext.h"
-//#include "NuppelVideoRecorder.h"
 #include "avformatwriter.h"
 #include "audiooutpututil.h"
+#include "mythavutil.h"
 
 extern "C" {
 #if HAVE_BIGENDIAN
@@ -31,7 +31,7 @@ extern "C" {
 #endif
 #include "libavutil/opt.h"
 #include "libavutil/samplefmt.h"
-#include "libavutil/mem.h" // for av_free
+#include "libavutil/imgutils.h"
 }
 
 #define LOC QString("AVFW(%1): ").arg(m_filename)
@@ -235,24 +235,10 @@ bool AVFormatWriter::NextFrameIsKeyFrame(void)
 
 int AVFormatWriter::WriteVideoFrame(VideoFrame *frame)
 {
-    //AVCodecContext *c = m_videoStream->codec;
-
-    uint8_t *planes[3];
-    unsigned char *buf = frame->buf;
     int framesEncoded = m_framesWritten + m_bufferedVideoFrameTimes.size();
 
-    planes[0] = buf;
-    planes[1] = planes[0] + frame->width * frame->height;
-    planes[2] = planes[1] + (frame->width * frame->height) /
-        4; // (pictureFormat == AV_PIX_FMT_YUV422P ? 2 : 4);
-
     av_frame_unref(m_picture);
-    m_picture->data[0] = planes[0];
-    m_picture->data[1] = planes[1];
-    m_picture->data[2] = planes[2];
-    m_picture->linesize[0] = frame->width;
-    m_picture->linesize[1] = frame->width / 2;
-    m_picture->linesize[2] = frame->width / 2;
+    AVPictureFill(reinterpret_cast<AVFrame*>(m_picture), frame);
     m_picture->pts = framesEncoded + 1;
 
     if ((framesEncoded % m_keyFrameDist) == 0)
@@ -270,9 +256,10 @@ int AVFormatWriter::WriteVideoFrame(VideoFrame *frame)
     av_init_packet(&pkt);
     pkt.data = NULL;
     pkt.size = 0;
+    AVCodecContext *avctx = gCodecMap->getCodecContext(m_videoStream);
     {
         QMutexLocker locker(avcodeclock);
-        ret = avcodec_encode_video2(m_videoStream->codec, &pkt,
+        ret = avcodec_encode_video2(avctx, &pkt,
                                     m_picture, &got_pkt);
     }
 
@@ -332,18 +319,19 @@ static void bswap_16_buf(short int *buf, int buf_cnt, int audio_channels)
 }
 #endif
 
-int AVFormatWriter::WriteAudioFrame(unsigned char *buf, int fnum, long long &timecode)
+int AVFormatWriter::WriteAudioFrame(unsigned char *buf, int /*fnum*/, long long &timecode)
 {
 #if HAVE_BIGENDIAN
     bswap_16_buf((short int*) buf, m_audioFrameSize, m_audioChannels);
 #endif
 
-    int got_packet = 0;
+    bool got_packet = false;
     int ret = 0;
+    AVCodecContext *avctx = gCodecMap->getCodecContext(m_audioStream);
     int samples_per_avframe  = m_audioFrameSize * m_audioChannels;
     int sampleSizeIn   = AudioOutputSettings::SampleSize(FORMAT_S16);
     AudioFormat format =
-        AudioOutputSettings::AVSampleFormatToFormat(m_audioStream->codec->sample_fmt);
+        AudioOutputSettings::AVSampleFormatToFormat(avctx->sample_fmt);
     int sampleSizeOut  = AudioOutputSettings::SampleSize(format);
 
     AVPacket pkt;
@@ -351,13 +339,13 @@ int AVFormatWriter::WriteAudioFrame(unsigned char *buf, int fnum, long long &tim
     pkt.data          = NULL;
     pkt.size          = 0;
 
-    if (av_get_packed_sample_fmt(m_audioStream->codec->sample_fmt) == AV_SAMPLE_FMT_FLT)
+    if (av_get_packed_sample_fmt(avctx->sample_fmt) == AV_SAMPLE_FMT_FLT)
     {
         AudioOutputUtil::toFloat(FORMAT_S16, (void *)m_audioInBuf, (void *)buf,
                                  samples_per_avframe * sampleSizeIn);
         buf = m_audioInBuf;
     }
-    if (av_sample_fmt_is_planar(m_audioStream->codec->sample_fmt))
+    if (av_sample_fmt_is_planar(avctx->sample_fmt))
     {
         AudioOutputUtil::DeinterleaveSamples(format,
                                              m_audioChannels,
@@ -378,20 +366,37 @@ int AVFormatWriter::WriteAudioFrame(unsigned char *buf, int fnum, long long &tim
 
     m_audPicture->linesize[0] = m_audioFrameSize;
     m_audPicture->nb_samples = m_audioFrameSize;
-    m_audPicture->format = m_audioStream->codec->sample_fmt;
+    m_audPicture->format = avctx->sample_fmt;
     m_audPicture->extended_data = m_audPicture->data;
 
     m_bufferedAudioFrameTimes.push_back(timecode);
 
     {
         QMutexLocker locker(avcodeclock);
-        ret = avcodec_encode_audio2(m_audioStream->codec, &pkt,
-                                    m_audPicture, &got_packet);
+        //  SUGGESTION
+        //  Now that avcodec_encode_audio2 is deprecated and replaced
+        //  by 2 calls, this could be optimized
+        //  into separate routines or separate threads.
+        got_packet = false;
+        ret = avcodec_receive_packet(avctx, &pkt);
+        if (ret == 0)
+            got_packet = true;
+        if (ret == AVERROR(EAGAIN))
+            ret = 0;
+        if (ret == 0)
+            ret = avcodec_send_frame(avctx, m_audPicture);
+        // if ret from avcodec_send_frame is AVERROR(EAGAIN) then
+        // there are 2 packets to be received while only 1 frame to be
+        // sent. The code does not cater for this. Hopefully it will not happen.
     }
 
     if (ret < 0)
     {
-        LOG(VB_RECORD, LOG_ERR, "avcodec_encode_audio2() failed");
+        char error[AV_ERROR_MAX_STRING_SIZE];
+        LOG(VB_GENERAL, LOG_ERR, LOC +
+            QString("audio encode error: %1 (%2)")
+            .arg(av_make_error_string(error, sizeof(error), ret))
+            .arg(got_packet));
         return ret;
     }
 
@@ -432,8 +437,8 @@ int AVFormatWriter::WriteAudioFrame(unsigned char *buf, int fnum, long long &tim
     return 1;
 }
 
-int AVFormatWriter::WriteTextFrame(int vbimode, unsigned char *buf, int len,
-                                   long long timecode, int pagenr)
+int AVFormatWriter::WriteTextFrame(int /*vbimode*/, unsigned char */*buf*/, int /*len*/,
+                                   long long /*timecode*/, int /*pagenr*/)
 {
     return 1;
 }
@@ -463,7 +468,6 @@ AVStream* AVFormatWriter::AddVideoStream(void)
     }
     st->id = 0;
 
-    c = st->codec;
 
     codec = avcodec_find_encoder(m_ctx->oformat->video_codec);
     if (!codec)
@@ -473,7 +477,8 @@ AVStream* AVFormatWriter::AddVideoStream(void)
         return NULL;
     }
 
-    avcodec_get_context_defaults3(c, codec);
+    gCodecMap->freeCodecContext(st);
+    c = gCodecMap->getCodecContext(st, codec);
 
     c->codec                      = codec;
     c->codec_id                   = m_ctx->oformat->video_codec;
@@ -515,33 +520,41 @@ AVStream* AVFormatWriter::AddVideoStream(void)
             (c->bit_rate > 1000000)) // 14,000 Kbps aka 14Mbps maximum permissable rate for Baseline 3.1
         {
             c->level = 40;
+            // AVCodecContext AVOptions:
             av_opt_set(c->priv_data, "profile", "main", 0);
         }
         else if ((c->height > 576) || // Approximate highest resolution supported by Baseline 3.0
             (c->bit_rate > 1000000))  // 10,000 Kbps aka 10Mbps maximum permissable rate for Baseline 3.0
         {
             c->level = 31;
+            // AVCodecContext AVOptions:
             av_opt_set(c->priv_data, "profile", "baseline", 0);
         }
         else
         {
             c->level = 30; // Baseline 3.0 is the most widely supported, but it's limited to SD
+            // AVCodecContext AVOptions:
             av_opt_set(c->priv_data, "profile", "baseline", 0);
         }
 
-        c->coder_type            = 0;
+        // AVCodecContext AVOptions:
+        // c->coder_type            = 0;
+        av_opt_set_int(c, "coder", FF_CODER_TYPE_VLC, 0);
         c->max_b_frames          = 0;
         c->slices                = 8;
 
         c->flags                |= CODEC_FLAG_LOOP_FILTER;
         c->me_cmp               |= 1;
-        c->me_method             = ME_HEX;
+        // c->me_method             = ME_HEX;
+        av_opt_set_int(c, "me_method", ME_HEX, 0);
         c->me_subpel_quality     = 6;
         c->me_range              = 16;
         c->keyint_min            = 25;
-        c->scenechange_threshold = 40;
+        // c->scenechange_threshold = 40;
+        av_opt_set_int(c, "sc_threshold", 40, 0);
         c->i_quant_factor        = 0.71;
-        c->b_frame_strategy      = 1;
+        // c->b_frame_strategy      = 1;
+        av_opt_set_int(c, "b_strategy", 1, 0);
         c->qcompress             = 0.6;
         c->qmin                  = 10;
         c->qmax                  = 51;
@@ -549,6 +562,7 @@ AVStream* AVFormatWriter::AddVideoStream(void)
         c->refs                  = 3;
         c->trellis               = 0;
 
+        // libx264 AVOptions:
         av_opt_set(c, "partitions", "i8x8,i4x4,p8x8,b8x8", 0);
         av_opt_set_int(c, "direct-pred", 1, 0);
         av_opt_set_int(c, "rc-lookahead", 0, 0);
@@ -557,6 +571,7 @@ AVStream* AVFormatWriter::AddVideoStream(void)
         av_opt_set_int(c, "8x8dct", 0, 0);
         av_opt_set_int(c, "weightb", 0, 0);
 
+        // libx264 AVOptions:
         av_opt_set(c->priv_data, "preset",
                    m_encodingPreset.toLatin1().constData(), 0);
         av_opt_set(c->priv_data, "tune",
@@ -573,7 +588,7 @@ bool AVFormatWriter::OpenVideo(void)
 {
     AVCodecContext *c;
 
-    c = m_videoStream->codec;
+    c = gCodecMap->getCodecContext(m_videoStream);
 
     if (!m_width || !m_height)
         return false;
@@ -617,7 +632,8 @@ AVStream* AVFormatWriter::AddAudioStream(void)
     }
     st->id = 1;
 
-    c = st->codec;
+    c = gCodecMap->getCodecContext(st, NULL, true);
+
     c->codec_id     = m_ctx->oformat->audio_codec;
     c->codec_type   = AVMEDIA_TYPE_AUDIO;
     c->bit_rate     = m_audioBitrate;
@@ -661,7 +677,7 @@ bool AVFormatWriter::OpenAudio(void)
     AVCodecContext *c;
     AVCodec *codec;
 
-    c = m_audioStream->codec;
+    c = gCodecMap->getCodecContext(m_audioStream);
 
     c->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
@@ -728,7 +744,7 @@ AVFrame* AVFormatWriter::AllocPicture(enum AVPixelFormat pix_fmt)
             LOC + "AllocPicture(): avcodec_alloc_frame() failed");
         return NULL;
     }
-    size = avpicture_get_size(pix_fmt, m_width, m_height);
+    size = av_image_get_buffer_size(pix_fmt, m_width, m_height, IMAGE_ALIGN);
     picture_buf = (unsigned char *)av_malloc(size);
     if (!picture_buf)
     {
@@ -736,8 +752,8 @@ AVFrame* AVFormatWriter::AllocPicture(enum AVPixelFormat pix_fmt)
         av_frame_free(&picture);
         return NULL;
     }
-    avpicture_fill((AVPicture *)picture, picture_buf,
-                   pix_fmt, m_width, m_height);
+    av_image_fill_arrays(picture->data, picture->linesize,
+        picture_buf, pix_fmt, m_width, m_height, IMAGE_ALIGN);
     return picture;
 }
 

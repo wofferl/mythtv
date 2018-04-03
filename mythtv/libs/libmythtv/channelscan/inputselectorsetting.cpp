@@ -34,7 +34,7 @@
 
 InputSelector::InputSelector(
     uint _default_cardid, const QString &_default_inputname) :
-    ComboBoxSetting(this), sourceid(0), default_cardid(_default_cardid),
+    sourceid(0), default_cardid(_default_cardid),
     default_inputname(_default_inputname)
 {
     default_inputname.detach();
@@ -99,7 +99,7 @@ void InputSelector::SetSourceID(const QString &_sourceid)
 uint InputSelector::GetCardID(void) const
 {
     uint    cardid    = 0;
-    QString inputname = QString::null;
+    QString inputname;
 
     Parse(getValue(), cardid, inputname);
 
@@ -109,7 +109,7 @@ uint InputSelector::GetCardID(void) const
 QString InputSelector::GetInputName(void) const
 {
     uint    cardid    = 0;
-    QString inputname = QString::null;
+    QString inputname;
 
     Parse(getValue(), cardid, inputname);
 
@@ -121,7 +121,7 @@ bool InputSelector::Parse(const QString &cardid_inputname,
                           QString       &inputname)
 {
     cardid    = 0;
-    inputname = QString::null;
+    inputname.clear();
 
     int sep0 = cardid_inputname.indexOf(':');
     if (sep0 < 1)

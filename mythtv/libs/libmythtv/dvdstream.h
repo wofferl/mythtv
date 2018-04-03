@@ -19,10 +19,10 @@ typedef struct dvd_reader_s dvd_reader_t;
  */
 class MTV_PUBLIC DVDStream : public RingBuffer
 {
-    Q_DISABLE_COPY(DVDStream)
+    Q_DISABLE_COPY(DVDStream);
 
 public:
-    DVDStream(const QString&);
+    explicit DVDStream(const QString&);
     virtual ~DVDStream();
 
 public:

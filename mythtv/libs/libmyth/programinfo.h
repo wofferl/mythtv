@@ -18,6 +18,7 @@
 #include "mythexp.h"
 #include "mythdate.h"
 #include "mythtypes.h"
+#include "enums/recStatus.h"
 
 /* If NUMPROGRAMLINES gets updated, then MYTH_PROTO_VERSION and MYTH_PROTO_TOKEN
    in mythversion.h need to be bumped, and also follow the instructions in
@@ -68,13 +69,13 @@ class MPUBLIC ProgramInfo
   public:
     enum CategoryType { kCategoryNone, kCategoryMovie, kCategorySeries,
                         kCategorySports, kCategoryTVShow };
-                        
+
     /// Null constructor
     ProgramInfo(void);
     /// Copy constructor
     ProgramInfo(const ProgramInfo &other);
     /// Constructs a ProgramInfo from data in 'recorded' table
-    ProgramInfo(uint recordedid);
+    explicit ProgramInfo(uint recordedid);
     /// Constructs a ProgramInfo from data in 'recorded' table
     ProgramInfo(uint chanid, const QDateTime &recstartts);
     /// Constructs a ProgramInfo from data in 'recorded' table
@@ -242,9 +243,10 @@ class MPUBLIC ProgramInfo
 
                 const QString &seriesid,
                 const QString &programid,
-                const QString &inetref);
+                const QString &inetref,
+                const QString &inputname);
     /// Constructs a ProgramInfo for a pathname.
-    ProgramInfo(const QString &pathname);
+    explicit ProgramInfo(const QString &pathname);
     /// Constructs a ProgramInfo for a video.
     ProgramInfo(const QString &pathname,
                 const QString &plot,
@@ -270,7 +272,7 @@ class MPUBLIC ProgramInfo
         if (!FromStringList(it, end))
             clear();
     }
-    ProgramInfo(const QStringList &list) :
+    explicit ProgramInfo(const QStringList &list) :
         chanid(0),
         positionMapDBReplacement(NULL)
     {
@@ -279,6 +281,7 @@ class MPUBLIC ProgramInfo
             clear();
     }
 
+    bool operator==(const ProgramInfo& rhs);
     ProgramInfo &operator=(const ProgramInfo &other);
     virtual void clone(const ProgramInfo &other,
                        bool ignore_non_serialized_data = false);
@@ -424,7 +427,6 @@ class MPUBLIC ProgramInfo
     uint    GetRecordingID(void)              const { return recordedid; }
     RecStatus::Type GetRecordingStatus(void)    const
         { return (RecStatus::Type)recstatus; }
-    uint    GetPreferedInputID(void)          const { return prefinput; }
     uint    GetRecordingRuleID(void)          const { return recordid;  }
     uint    GetParentRecordingRuleID(void)    const { return parentid;  }
     RecordingType GetRecordingRuleType(void)  const
@@ -440,6 +442,11 @@ class MPUBLIC ProgramInfo
 
     uint    GetSourceID(void)             const { return sourceid;     }
     uint    GetInputID(void)              const { return inputid;      }
+    QString GetInputName(void)            const { return inputname;    }
+    QString GetShortInputName(void) const
+        { return inputname.isRightToLeft() ?
+                 inputname.left(2) : inputname.right(2); }
+    void    ClearInputName(void)          { inputname.clear(); }
 
     uint    GetFindID(void)               const { return findid;       }
 
@@ -584,7 +591,7 @@ class MPUBLIC ProgramInfo
     void SaveDVDBookmark(const QStringList &fields) const;
     void SaveBDBookmark(const QStringList &fields) const;
     void SaveEditing(bool edit);
-    void SaveTranscodeStatus(TranscodingStatus transFlag);
+    void SaveTranscodeStatus(TranscodingStatus trans);
     void SaveWatched(bool watchedFlag);
     void SaveDeletePendingFlag(bool deleteFlag);
     void SaveCommFlagged(CommFlagStatus flag); // 1 = flagged, 2 = processing
@@ -626,9 +633,21 @@ class MPUBLIC ProgramInfo
                          int64_t min_frm = -1, int64_t max_frm = -1) const;
     void SavePositionMapDelta(frm_pos_map_t &, MarkTypes type) const;
 
-    // Get position/duration for keyframe
-    bool QueryKeyFramePosition(uint64_t *, uint64_t keyframe, bool backwards) const;
-    bool QueryKeyFrameDuration(uint64_t *, uint64_t keyframe, bool backwards) const;
+    // Get position/duration for keyframe and vice versa
+    bool QueryKeyFrameInfo(uint64_t *, uint64_t position_or_keyframe,
+                           bool backwards,
+                           MarkTypes type, const char *from_filemarkup_asc,
+                           const char *from_filemarkup_desc,
+                           const char *from_recordedseek_asc,
+                           const char *from_recordedseek_desc) const;
+    bool QueryKeyFramePosition(uint64_t *, uint64_t keyframe,
+                               bool backwards) const;
+    bool QueryPositionKeyFrame(uint64_t *, uint64_t position,
+                               bool backwards) const;
+    bool QueryKeyFrameDuration(uint64_t *, uint64_t keyframe,
+                               bool backwards) const;
+    bool QueryDurationKeyFrame(uint64_t *, uint64_t duration,
+                               bool backwards) const;
 
     // Get/set all markup
     struct MarkupEntry
@@ -664,6 +683,8 @@ class MPUBLIC ProgramInfo
         const QString &pathname, uint &chanid, QDateTime &recstartts);
     static bool QueryKeyFromPathname(
         const QString &pathname, uint &chanid, QDateTime &recstartts);
+    static bool QueryRecordedIdFromPathname(const QString &pathname,
+        uint &recordedid);
 
     static QString  QueryRecordingGroupPassword(const QString &group);
     static uint64_t QueryBookmark(uint chanid, const QDateTime &recstartts);
@@ -742,7 +763,6 @@ class MPUBLIC ProgramInfo
     QDateTime lastmodified;
     QDateTime lastInUseTime;
 
-    uint32_t prefinput;
     int32_t recpriority2;
 
     uint32_t recordid;
@@ -819,13 +839,23 @@ MPUBLIC bool LoadFromOldRecorded(
     const QString      &sql,
     const MSqlBindings &bindings);
 
+MPUBLIC bool LoadFromOldRecorded(
+    ProgramList        &destination, 
+    const QString      &sql, 
+    const MSqlBindings &bindings,
+    const uint         &start, 
+    const uint         &limit,
+    uint               &count);
+
 MPUBLIC bool LoadFromRecorded(
     ProgramList        &destination,
     bool                possiblyInProgressRecordingsOnly,
     const QMap<QString,uint32_t> &inUseMap,
     const QMap<QString,bool> &isJobRunning,
     const QMap<QString, ProgramInfo*> &recMap,
-    int                 sort = 0);
+    int                 sort = 0,
+    const QString      &sortBy = "");
+
 
 template<typename TYPE>
 bool LoadFromScheduler(

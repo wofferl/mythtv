@@ -72,6 +72,7 @@ MusicFileScanner::~MusicFileScanner ()
  *
  * \param directory Directory to begin search
  * \param music_files A pointer to the MusicLoadedMap to store the results
+ * \param art_files   A pointer to the MusicLoadedMap to store the results
  * \param parentid The id of the parent directory in the music_directories
  *                 table. The root directory should have an id of 0
  *
@@ -195,7 +196,7 @@ int MusicFileScanner::GetDirectoryId(const QString &directory, const int &parent
 
     // Load the directory id or insert it and get the id
     query.prepare("SELECT directory_id FROM music_directories "
-                "WHERE path = :DIRECTORY ;");
+                "WHERE path = BINARY :DIRECTORY ;");
     query.bindValue(":DIRECTORY", directory);
 
     if (!query.exec())
@@ -260,6 +261,9 @@ bool MusicFileScanner::HasFileChanged(
  *        type.
  *
  * \param filename Full path to file.
+ * \param startDir The starting directory fir the search. This will be
+ *                 removed making the stored name relative to the
+ *                 storage directory where it was found.
  *
  * \returns Nothing.
  */
@@ -505,6 +509,9 @@ void MusicFileScanner::cleanDB()
  * \brief Removes a file from the database.
  *
  * \param filename Full path to file.
+ * \param startDir The starting directory fir the search. This will be
+ *                 removed making the stored name relative to the
+ *                 storage directory where it was found.
  *
  * \returns Nothing.
  */
@@ -553,6 +560,9 @@ void MusicFileScanner::RemoveFileFromDB(const QString &filename, const QString &
  * \brief Updates a file in the database.
  *
  * \param filename Full path to file.
+ * \param startDir The starting directory fir the search. This will be
+ *                 removed making the stored name relative to the
+ *                 storage directory where it was found.
  *
  * \returns Nothing.
  */
@@ -785,7 +795,7 @@ void MusicFileScanner::ScanMusic(MusicLoadedMap &music_files)
     query.prepare("SELECT CONCAT_WS('/', path, filename), date_modified "
                   "FROM music_songs LEFT JOIN music_directories ON "
                   "music_songs.directory_id=music_directories.directory_id "
-                  "WHERE filename NOT LIKE ('%://%') "
+                  "WHERE filename NOT LIKE BINARY ('%://%') "
                   "AND hostname = :HOSTNAME");
 
     query.bindValue(":HOSTNAME", gCoreContext->GetHostName());

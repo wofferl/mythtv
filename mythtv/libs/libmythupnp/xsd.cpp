@@ -39,22 +39,32 @@ bool Xsd::GetEnumXSD( HTTPRequest *pRequest, QString sEnumName )
     // Create Parent object so we can get to its metaObject
     // ----------------------------------------------------------------------
 
-    QString sParentFQN = "DTC::" + lstTypeParts[0];
-
+    QString sParentFQN = lstTypeParts[0];
     int nParentId = QMetaType::type( sParentFQN.toUtf8() );
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    QObject *pParentClass = (QObject *)QMetaType::construct( nParentId );
-#else
-    QObject *pParentClass = (QObject *)QMetaType::create( nParentId );
-#endif
+    // ----------------------------------------------------------------------
+    // Check for things that were formerly registered as both 'Foo' and 'Foo*'
+    // ----------------------------------------------------------------------
+    if (nParentId == QMetaType::UnknownType)
+    {
+        QString sFQN = sParentFQN + "*";
+        nParentId = QMetaType::type( sFQN.toUtf8() );
+    }
 
-    if (pParentClass == NULL)
+    // ----------------------------------------------------------------------
+    // if a DataContract type, we need to prefix name with DTC::
+    // These types are all pointers to objects, so we also need to add "*"
+    // ----------------------------------------------------------------------
+
+    if (nParentId == QMetaType::UnknownType)
+    {
+        QString sFQN = "DTC::" + sParentFQN + "*";
+        nParentId = QMetaType::type( sFQN.toUtf8() );
+    }
+
+    const QMetaObject *pMetaObject = QMetaType::metaObjectForType(nParentId);
+    if (pMetaObject == NULL)
         return false;
-
-    const QMetaObject *pMetaObject = pParentClass->metaObject();
-
-    QMetaType::destroy( nParentId, pParentClass );
 
     // ----------------------------------------------------------------------
     // Now look up enum
@@ -124,6 +134,9 @@ bool Xsd::GetEnumXSD( HTTPRequest *pRequest, QString sEnumName )
         QDomElement oApp      = createElement( "xs:appinfo"       );
         QDomElement oEnumVal  = createElement( "EnumerationValue" );
         QDomElement oEnumDesc = createElement( "EnumerationDesc"  );
+
+        // The following namespace is needed for visual studio to generate negative enums correctly.
+        oEnumVal.setAttribute("xmlns", "http://schemas.microsoft.com/2003/10/Serialization/");
 
         oEnum.appendChild( oAnn      );
         oAnn .appendChild( oApp      );
@@ -206,13 +219,22 @@ bool Xsd::GetXSD( HTTPRequest *pRequest, QString sTypeName )
     int id = QMetaType::type( sTypeName.toUtf8() );
 
     // ----------------------------------------------------------------------
+    // Check for things that were formerly registered as both 'Foo' and 'Foo*'
+    // ----------------------------------------------------------------------
+    if (id == QMetaType::UnknownType)
+    {
+        QString sFQN = sTypeName + "*";
+        id = QMetaType::type( sFQN.toUtf8() );
+    }
+
+    // ----------------------------------------------------------------------
     // if a DataContract type, we need to prefix name with DTC::
+    // These types are all pointers to objects, so we also need to add "*"
     // ----------------------------------------------------------------------
 
-    if (id == 0)
+    if (id == QMetaType::UnknownType)
     {
-        QString sFQN = "DTC::" + sTypeName;
-
+        QString sFQN = "DTC::" + sTypeName + "*";
         id = QMetaType::type( sFQN.toUtf8() );
     }
 
@@ -251,16 +273,14 @@ bool Xsd::GetXSD( HTTPRequest *pRequest, QString sTypeName )
     }
     else
     {
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-        QObject *pClass = (QObject *)QMetaType::construct( id );
-#else
-        QObject *pClass = (QObject *)QMetaType::create( id );
-#endif
-
-        if (pClass != NULL)
-            bHandled = RenderXSD( pRequest, pClass );
-
-        QMetaType::destroy( id, pClass );
+        const QMetaObject *pMetaObject = QMetaType::metaObjectForType(id);
+        if (pMetaObject)
+        {
+            QObject* pClass = pMetaObject->newInstance();
+            if (pClass != NULL)
+                bHandled = RenderXSD( pRequest, pClass );
+            delete pClass;
+        }
     }
 
     return bHandled;
@@ -500,60 +520,9 @@ bool Xsd::RenderXSD( HTTPRequest *pRequest, QObject *pClass )
     return true;
 }
 
-bool Xsd::IsEnum( const QMetaProperty &metaProperty, const QString &sType )
+bool Xsd::IsEnum( const QMetaProperty &metaProperty, const QString &/*sType*/ )
 {
-    if (metaProperty.isEnumType() || metaProperty.isFlagType() )
-        return true;
-
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-
-    int nLastIdx = sType.lastIndexOf( "::" );
-
-    if ( nLastIdx >=0 )
-    {
-        // ----------------------------------------------------------
-        // Qt 4 doesn't handle Enums correctly when they are defined
-        // in a seperate class, so we need to use an alternate check
-        // to see if this property is really a enum.
-        // ----------------------------------------------------------
-
-        // ----------------------------------------------------------
-        // We need to construct the type to verify this is an enum
-        // ----------------------------------------------------------
-
-        QString sParentFQN = sType.mid( 0, nLastIdx );
-        QString sEnumName  = sType.mid( nLastIdx+2  );
-
-        // ----------------------------------------------------------
-        // Create Parent object so we can get to its metaObject
-        // ----------------------------------------------------------
-
-        int nParentId = QMetaType::type( sParentFQN.toUtf8() );
-
-        QObject *pParentClass = (QObject *)QMetaType::construct( nParentId );
-
-        if (pParentClass == NULL)
-            return false;
-
-        const QMetaObject *pMetaObject = pParentClass->metaObject();
-
-        QMetaType::destroy( nParentId, pParentClass );
-
-        // ----------------------------------------------------------
-        // Now look up enum
-        // ----------------------------------------------------------
-
-        int nEnumIdx = pMetaObject->indexOfEnumerator( sEnumName.toUtf8());
-
-        if (nEnumIdx < 0 )
-            return false;
-
-        return true;
-    }
-
-#endif
-
-    return false;
+    return (metaProperty.isEnumType() || metaProperty.isFlagType() );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -923,7 +892,10 @@ QString Xsd::ReadPropertyMetadata( QObject *pObject, QString sPropName, QString 
 {
     const QMetaObject *pMeta = pObject->metaObject();
 
-    int nIdx = pMeta->indexOfClassInfo( sPropName.toUtf8() );
+    int nIdx = -1;
+
+    if (pMeta)
+        nIdx = pMeta->indexOfClassInfo( sPropName.toUtf8() );
 
     if (nIdx >=0)
     {

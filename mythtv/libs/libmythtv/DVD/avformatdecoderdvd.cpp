@@ -22,7 +22,6 @@ AvFormatDecoderDVD::AvFormatDecoderDVD(
   , m_lbaLastVideoPkt(INVALID_LBA)
   , m_framesReq(0)
   , m_returnContext(NULL)
-  , m_oldLowBuffers(lowbuffers)
 {
 }
 
@@ -63,13 +62,6 @@ void AvFormatDecoderDVD::Reset(bool reset_video_data, bool seek_reset, bool rese
     SyncPositionMap();
 }
 
-void AvFormatDecoderDVD::SetLowBuffers(bool low)
-{
-    if (lowbuffers == m_oldLowBuffers)
-        DecoderBase::SetLowBuffers(low);
-
-    m_oldLowBuffers = low;
-}
 
 void AvFormatDecoderDVD::UpdateFramesPlayed(void)
 {
@@ -81,7 +73,7 @@ void AvFormatDecoderDVD::UpdateFramesPlayed(void)
     m_parent->SetFramesPlayed(currentpos + 1);
 }
 
-bool AvFormatDecoderDVD::GetFrame(DecodeType decodetype)
+bool AvFormatDecoderDVD::GetFrame(DecodeType /*decodetype*/)
 {
     // Always try to decode audio and video for DVDs
     return AvFormatDecoder::GetFrame( kDecodeAV );
@@ -151,8 +143,6 @@ int AvFormatDecoderDVD::ReadPacket(AVFormatContext *ctx, AVPacket* pkt, bool& st
                                 // Make sure no more frames will be buffered
                                 // for the time being and start emptying our
                                 // buffer.
-                                m_oldLowBuffers = lowbuffers;
-                                lowbuffers = false;
 
                                 // Force AvFormatDecoder to stop buffering frames
                                 storePacket = false;
@@ -163,12 +153,6 @@ int AvFormatDecoderDVD::ReadPacket(AVFormatContext *ctx, AVPacket* pkt, bool& st
                                 delete storedPkt;
 
                                 return 0;
-                            }
-                            else
-                            {
-                                // Our buffers are empty, frames may be
-                                // buffered again if necessary.
-                                lowbuffers = m_oldLowBuffers;
                             }
                             break;
 
@@ -212,8 +196,8 @@ int AvFormatDecoderDVD::ReadPacket(AVFormatContext *ctx, AVPacket* pkt, bool& st
 
                     AVStream *curstream = ic->streams[pkt->stream_index];
 
-                    if ((curstream->codec->codec_type == AVMEDIA_TYPE_VIDEO) ||
-                        (curstream->codec->codec_id == AV_CODEC_ID_DVD_NAV))
+                    if ((curstream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) ||
+                        (curstream->codecpar->codec_id == AV_CODEC_ID_DVD_NAV))
                     {
                         // Allow video or NAV packets through
                         gotPacket = true;
@@ -387,7 +371,7 @@ bool AvFormatDecoderDVD::ProcessDataPacket(AVStream *curstream, AVPacket *pkt,
 {
     bool ret = true;
 
-    if (curstream->codec->codec_id == AV_CODEC_ID_DVD_NAV)
+    if (curstream->codecpar->codec_id == AV_CODEC_ID_DVD_NAV)
     {
         MythDVDContext* context = ringBuffer->DVD()->GetDVDContext();
 
@@ -595,6 +579,15 @@ void AvFormatDecoderDVD::StreamChangeCheck(void)
     if (!ringBuffer->IsDVD())
         return;
 
+    if (m_streams_changed)
+    {
+        // This was originally in HandleDVDStreamChange
+        QMutexLocker locker(avcodeclock);
+        ScanStreams(true);
+        avcodeclock->unlock();
+        m_streams_changed=false;
+    }
+
     // Update the title length
     if (m_parent->AtNormalSpeed() &&
         ringBuffer->DVD()->PGCLengthChanged())
@@ -613,7 +606,7 @@ void AvFormatDecoderDVD::StreamChangeCheck(void)
     for (uint i = 0; i < ic->nb_streams; i++)
     {
         AVStream *st = ic->streams[i];
-        if (st && st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+        if (st && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
         {
             selectedTrack[kTrackTypeVideo].av_stream_index = i;
             break;

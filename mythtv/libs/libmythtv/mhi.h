@@ -47,7 +47,7 @@ class QByteArray;
 class MHIContext : public MHContext, public QRunnable
 {
   public:
-    MHIContext(InteractiveTV *parent);
+    explicit MHIContext(InteractiveTV *parent);
     virtual ~MHIContext();
 
     void QueueDSMCCPacket(unsigned char *data, int length, int componentTag,
@@ -232,7 +232,7 @@ class MHIContext : public MHContext, public QRunnable
 class MHIText : public MHTextDisplay
 {
   public:
-    MHIText(MHIContext *parent);
+    explicit MHIText(MHIContext *parent);
     virtual ~MHIText() {}
 
     virtual void Draw(int x, int y);
@@ -272,12 +272,14 @@ class MHIBitmap : public MHBitmapDisplay
     /// Create bitmap from JPEG
     virtual void CreateFromJPEG(const unsigned char *data, int length);
 
-    /** \fn MHIBitmap::Draw(int,int,QRect,bool)
+    /**
      *  \brief Draw the completed drawing onto the display.
      *
-     *  \param x     Horizontal position of the image relative to the screen.
-     *  \param y     Vertical position of the image relative to the screen.
-     *  \param rect  Bounding box for the image relative to the screen.
+     *  \param x      Horizontal position of the image relative to the screen.
+     *  \param y      Vertical position of the image relative to the screen.
+     *  \param rect   Bounding box for the image relative to the screen.
+     *  \param tiled  Tile the drawing to fit the parent window.
+     *  \param bUnder Put the drawing at the behind any other widgets.
      */
     virtual void Draw(int x, int y, QRect rect, bool tiled, bool bUnder);
 

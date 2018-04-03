@@ -43,8 +43,8 @@ ASIRecorder::ASIRecorder(TVRec *rec, ASIChannel *channel) :
 
 void ASIRecorder::SetOptionsFromProfile(RecordingProfile *profile,
                                         const QString &videodev,
-                                        const QString &audiodev,
-                                        const QString &vbidev)
+                                        const QString &/*audiodev*/,
+                                        const QString &/*vbidev*/)
 {
     // We don't want to call DTVRecorder::SetOptionsFromProfile() since
     // we do not have a "recordingtype" in our profile.
@@ -160,7 +160,9 @@ bool ASIRecorder::Open(void)
 
     ResetForNewFile();
 
-    m_stream_handler = ASIStreamHandler::Get(m_channel->GetDevice());
+    m_stream_handler = ASIStreamHandler::Get(m_channel->GetDevice(),
+                                             tvrec ? tvrec->GetInputId() : -1);
+
 
     LOG(VB_RECORD, LOG_INFO, LOC + "Opened successfully");
 
@@ -177,7 +179,8 @@ void ASIRecorder::Close(void)
     LOG(VB_RECORD, LOG_INFO, LOC + "Close() -- begin");
 
     if (IsOpen())
-        ASIStreamHandler::Return(m_stream_handler);
+        ASIStreamHandler::Return(m_stream_handler,
+                                 tvrec ? tvrec->GetInputId() : -1);
 
     LOG(VB_RECORD, LOG_INFO, LOC + "Close() -- end");
 }

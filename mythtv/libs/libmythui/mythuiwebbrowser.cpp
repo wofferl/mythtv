@@ -35,8 +35,10 @@
 #include <QKeyEvent>
 #include <QDomDocument>
 #include <QNetworkCookieJar>
+#include <QNetworkConfiguration>
 
-#include <unistd.h> // for usleep()
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 struct MimeType
 {
@@ -108,6 +110,10 @@ static QNetworkAccessManager *GetNetworkAccessManager(void)
         return networkManager;
 
     networkManager = new MythNetworkAccessManager();
+//  This next line prevents seg fault at program exit in
+//  QNetworkConfiguration::~QNetworkConfiguration()
+//  when destructor is called by DestroyNetworkAccessManager
+    networkManager->setConfiguration(networkManager->configuration());
     LOG(VB_GENERAL, LOG_DEBUG, "Copying DLManager's Cookie Jar");
     GetMythDownloadManager()->loadCookieJar(GetConfDir() + "/MythBrowser/cookiejar.txt");
     networkManager->setCookieJar(GetMythDownloadManager()->copyCookieJar());
@@ -188,7 +194,7 @@ int BrowserApi::GetVolume(void)
     while (timer.elapsed() < 2000  && !m_gotAnswer)
     {
         qApp->processEvents();
-        usleep(10000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     if (m_gotAnswer)
@@ -232,7 +238,7 @@ QString BrowserApi::GetMetadata(void)
     while (timer.elapsed() < 2000  && !m_gotAnswer)
     {
         qApp->processEvents();
-        usleep(10000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     if (m_gotAnswer)
@@ -1131,7 +1137,6 @@ void MythUIWebBrowser::SetActive(bool active)
         m_browser->setFocus();
         m_browser->show();
         m_browser->raise();
-#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
         if (qApp->platformName().contains("egl"))
         {
             m_browser->setParent(0);
@@ -1139,17 +1144,14 @@ void MythUIWebBrowser::SetActive(bool active)
             m_browser->show();
             m_browser->raise();
         }
-#endif
         m_browser->setUpdatesEnabled(true);
     }
     else
     {
         m_browser->clearFocus();
         m_browser->hide();
-#if QT_VERSION >= QT_VERSION_CHECK(5,0,0)
         if (qApp->platformName().contains("egl"))
             m_browser->setParent(GetMythMainWindow());
-#endif
         UpdateBuffer();
     }
 }
@@ -1504,7 +1506,7 @@ void MythUIWebBrowser::Pulse(void)
  *  \copydoc MythUIType::DrawSelf()
  */
 void MythUIWebBrowser::DrawSelf(MythPainter *p, int xoffset, int yoffset,
-                                int alphaMod, QRect clipRegion)
+                                int alphaMod, QRect clipRect)
 {
     if (!m_image || m_image->isNull() || !m_browser || m_browser->hasFocus())
         return;
@@ -1512,6 +1514,7 @@ void MythUIWebBrowser::DrawSelf(MythPainter *p, int xoffset, int yoffset,
     QRect area = m_actualBrowserArea;
     area.translate(xoffset, yoffset);
 
+    p->SetClipRect(clipRect);
     p->DrawImage(area.x(), area.y(), m_image, alphaMod);
 }
 

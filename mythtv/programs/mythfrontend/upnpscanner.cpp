@@ -6,7 +6,8 @@
 #include "ssdp.h"
 #include "upnpscanner.h"
 
-#include <unistd.h> // for sleep()
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 #define LOC QString("UPnPScan: ")
 #define ERR QString("UPnPScan error: ")
@@ -241,7 +242,6 @@ void UPNPScanner::GetInitialMetadata(VideoMetadataListManager::metadata_list* li
 }
 
 /**
- * \fn UPNPScanner::GetMetadata
  *  Fill the given metadata_list and meta_dir_node with the metadata
  *  of content retrieved from known media servers. A full scan is triggered.
  */
@@ -261,7 +261,7 @@ void UPNPScanner::GetMetadata(VideoMetadataListManager::metadata_list* list,
 
     int count = 0;
     while (!m_scanComplete && (count++ < 300))
-        usleep(100000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // some scans may just take too long (PlayOn)
     if (!m_scanComplete)
@@ -319,7 +319,7 @@ bool UPNPScanner::GetMetadata(QVariant &data)
     LOG(VB_GENERAL, LOG_INFO, "START");
     while (!found && (count++ < 100)) // 10 seconds
     {
-        usleep(100000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         m_lock.lock();
         if (m_servers.contains(usn))
         {
@@ -644,7 +644,6 @@ void UPNPScanner::replyFinished(QNetworkReply *reply)
 }
 
 /**
- * \fn UPNPScanner::CustomEvent(QEvent*)
  *  Processes subscription and SSDP cache update events.
  */
 void UPNPScanner::customEvent(QEvent *event)

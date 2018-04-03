@@ -11,8 +11,8 @@ class MythBackend {
 
 // MYTH_PROTO_VERSION is defined in libmyth in mythtv/libs/libmyth/mythcontext.h
 // and should be the current MythTV protocol version.
-    static $protocol_version        = '88';
-    static $protocol_token          = 'XmasGift';
+    static $protocol_version        = '91';
+    static $protocol_token          = 'BuzzOff';
 
 // The character string used by the backend to separate records
     static $backend_separator       = '[]:[]';
@@ -34,8 +34,9 @@ class MythBackend {
 
     // Looking for the master backend?
         if (is_null($host)) {
-            $host = setting('MasterServerIP');
-            $port = setting('MasterServerPort');
+            $hostname = setting('MasterServerName');
+            $host = setting('BackendServerAddr',$hostname);
+            $port = setting('BackendServerPort',$hostname);
             if (!$host || !$port)
                 trigger_error("MasterServerIP or MasterServerPort not found! You may "
                             ."need to check your mythweb.conf file or re-run mythtv-setup",
@@ -53,7 +54,7 @@ class MythBackend {
 
     function __construct($host, $port = null) {
         $this->host         = $host;
-        $this->ip           = _or(setting('BackendServerIP', $this->host), $host);
+        $this->ip           = _or(setting('BackendServerAddr', $this->host), $host);
 
         // If the IP contains a ':' It's likely an IPv6 address so enclose it in '[]'
         if (strpos($this->ip,":") > 0) {

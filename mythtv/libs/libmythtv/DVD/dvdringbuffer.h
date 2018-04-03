@@ -68,10 +68,10 @@ class MythDVDPlayer;
 class MTV_PUBLIC DVDInfo
 {
     friend class DVDRingBuffer;
-    Q_DECLARE_TR_FUNCTIONS(DVDInfo)
+    Q_DECLARE_TR_FUNCTIONS(DVDInfo);
 
   public:
-    DVDInfo(const QString &filename);
+    explicit DVDInfo(const QString &filename);
    ~DVDInfo(void);
     bool IsValid(void) const { return m_nav != NULL; }
     bool GetNameAndSerialNum(QString &name, QString &serialnum);
@@ -93,10 +93,10 @@ class MTV_PUBLIC DVDInfo
 
 class MTV_PUBLIC DVDRingBuffer : public RingBuffer
 {
-    Q_DECLARE_TR_FUNCTIONS(DVDRingBuffer)
+    Q_DECLARE_TR_FUNCTIONS(DVDRingBuffer);
 
   public:
-    DVDRingBuffer(const QString &lfilename);
+    explicit DVDRingBuffer(const QString &lfilename);
     virtual ~DVDRingBuffer();
 
     // gets

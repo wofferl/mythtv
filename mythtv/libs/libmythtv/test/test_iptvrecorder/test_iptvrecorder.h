@@ -25,12 +25,6 @@
 #include "recorders/rtp/rtpdatapacket.h"
 #include "recorders/rtp/rtptsdatapacket.h"
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-#define MSKIP(MSG) QSKIP(MSG, SkipSingle)
-#else
-#define MSKIP(MSG) QSKIP(MSG)
-#endif
-
 class TestIPTVRecorder: public QObject
 {
     Q_OBJECT
@@ -67,6 +61,11 @@ class TestIPTVRecorder: public QObject
         tuning.SetDataURL(QUrl(QString("http://yourdreambox:8001/1:0:1:488:3FE:22F1:EEEE0000:0:0:0:")));
         QVERIFY (tuning.IsValid());
         QVERIFY (tuning.IsHTTPTS());
+
+        /* test url from #12820 with https protocol */
+        tuning.SetDataURL(QUrl(QString("https://svt10-lh.akamaihd.net/i/svt10_0@77505/master.m3u8")));
+        QVERIFY (tuning.IsValid());
+        QVERIFY (tuning.IsHTTPTS());
     }
 
 
@@ -75,7 +74,7 @@ class TestIPTVRecorder: public QObject
      */
     void TuningDataVLCStyle(void)
     {
-        MSKIP ("Do we want to support non-conformant urls that happen to work with VLC?");
+        QSKIP ("Do we want to support non-conformant urls that happen to work with VLC?");
         IPTVTuningData tuning;
 
         /* test url from http://www.tldp.org/HOWTO/VideoLAN-HOWTO/x549.html */

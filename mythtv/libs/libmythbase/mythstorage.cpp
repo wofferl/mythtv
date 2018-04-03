@@ -3,14 +3,15 @@
 // Myth headers
 #include "mythstorage.h"
 #include "mythdb.h"
+#include "mythcorecontext.h"
 
 void SimpleDBStorage::Load(void)
 {
     MSqlQuery query(MSqlQuery::InitCon());
     MSqlBindings bindings;
     query.prepare(
-        "SELECT " + GetColumnName() +
-        "  FROM " + GetTableName() +
+        "SELECT CAST(" + GetColumnName() + " AS CHAR)"
+        " FROM " + GetTableName() +
         " WHERE " + GetWhereClause(bindings));
     query.bindValues(bindings);
 
@@ -167,6 +168,12 @@ QString HostDBStorage::GetSetClause(MSqlBindings &bindings) const
     return clause;
 }
 
+void HostDBStorage::Save(void)
+{
+    SimpleDBStorage::Save();
+    gCoreContext->ClearSettingsCache(settingname);
+}
+
 //////////////////////////////////////////////////////////////////////
 
 GlobalDBStorage::GlobalDBStorage(
@@ -196,4 +203,10 @@ QString GlobalDBStorage::GetSetClause(MSqlBindings &bindings) const
     bindings.insert(dataTag, user->GetDBValue());
 
     return clause;
+}
+
+void GlobalDBStorage::Save(void)
+{
+    SimpleDBStorage::Save();
+    gCoreContext->ClearSettingsCache(settingname);
 }

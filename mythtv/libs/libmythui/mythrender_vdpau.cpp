@@ -2,7 +2,8 @@
 #include "mythrender_vdpau.h"
 
 #include <math.h>
-#include <unistd.h> // for usleep()
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 #include <QSize>
 
@@ -67,6 +68,8 @@
   if (m_reset_video_surfaces) \
       return arg1;
 
+#define COLOR_BLACK {0.0, 0.0, 0.0, 0.0}
+
 static const VdpOutputSurfaceRenderBlendState VDPBlends[3] = {
 {
     VDP_OUTPUT_SURFACE_RENDER_BLEND_STATE_VERSION,
@@ -76,6 +79,7 @@ static const VdpOutputSurfaceRenderBlendState VDPBlends[3] = {
     VDP_OUTPUT_SURFACE_RENDER_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
     VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD,
     VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD,
+    COLOR_BLACK
 },
 {
     VDP_OUTPUT_SURFACE_RENDER_BLEND_STATE_VERSION,
@@ -85,6 +89,7 @@ static const VdpOutputSurfaceRenderBlendState VDPBlends[3] = {
     VDP_OUTPUT_SURFACE_RENDER_BLEND_FACTOR_ZERO,
     VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD,
     VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD,
+    COLOR_BLACK
 },
 {
     VDP_OUTPUT_SURFACE_RENDER_BLEND_STATE_VERSION,
@@ -94,6 +99,7 @@ static const VdpOutputSurfaceRenderBlendState VDPBlends[3] = {
     VDP_OUTPUT_SURFACE_RENDER_BLEND_FACTOR_ZERO,
     VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD,
     VDP_OUTPUT_SURFACE_RENDER_BLEND_EQUATION_ADD,
+    COLOR_BLACK
 }};
 
 class VDPAUColor
@@ -484,7 +490,7 @@ void MythRenderVDPAU::WaitForFlip(void)
 
     INIT_ST
     VdpTime dummy = 0;
-    usleep(2000);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
     vdp_st = vdp_presentation_queue_block_until_surface_idle(
                 m_flipQueue, surface, &dummy);
     CHECK_ST
@@ -1596,7 +1602,7 @@ void MythRenderVDPAU::Decode(uint id, struct vdpau_render_state *render,
     CHECK_ST
 }
 
-static const char* dummy_get_error_string(VdpStatus status)
+static const char* dummy_get_error_string(VdpStatus /*status*/)
 {
     static const char dummy[] = "Unknown";
     return &dummy[0];
@@ -2279,4 +2285,9 @@ void MythRenderVDPAU::ResetVideoSurfaces(void)
 
     m_reset_video_surfaces = remaining;
     m_errored = !ok;
+}
+
+void MythRenderVDPAU::BindContext(AVCodecContext *avctx)
+{
+    av_vdpau_bind_context(avctx, m_device, vdp_get_proc_address, 0);
 }

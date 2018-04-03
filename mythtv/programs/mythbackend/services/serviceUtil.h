@@ -30,10 +30,12 @@
 #include "datacontracts/recRule.h"
 #include "datacontracts/artworkInfoList.h"
 #include "datacontracts/videoMetadataInfo.h"
+#include "datacontracts/musicMetadataInfo.h"
 #include "datacontracts/channelGroup.h"
 #include "datacontracts/input.h"
 #include "datacontracts/castMemberList.h"
 #include "datacontracts/cutList.h"
+#include "datacontracts/genreList.h"
 
 #include "programinfo.h"
 #include "recordingrule.h"
@@ -42,6 +44,7 @@
 #include "inputinfo.h"
 #include "channelinfo.h"
 #include "recordinginfo.h"
+#include "musicmetadata.h"
 
 void FillProgramInfo( DTC::Program *pProgram,
                       ProgramInfo  *pInfo,
@@ -66,10 +69,15 @@ void FillArtworkInfoList( DTC::ArtworkInfoList *pArtworkInfoList,
                           const QString        &sInetref,
                           uint                  nSeason );
 
+void FillGenreList( DTC::GenreList *pGenreList, int videoID);
+
 void FillVideoMetadataInfo (
                       DTC::VideoMetadataInfo *pVideoMetadataInfo,
                       VideoMetadataListManager::VideoMetadataPtr pMetadata,
                       bool          bDetails);
+
+void FillMusicMetadataInfo (DTC::MusicMetadataInfo *pVideoMetadataInfo,
+                            MusicMetadata *pMetadata, bool bDetails);
 
 void FillInputInfo( DTC::Input *input, InputInfo inputInfo);
 
@@ -79,5 +87,8 @@ void FillCastMemberList( DTC::CastMemberList *pCastMemberList,
 void FillCutList( DTC::CutList* pCutList, RecordingInfo* rInfo, int marktype);
 
 void FillCommBreak( DTC::CutList* pCutList, RecordingInfo* rInfo, int marktype);
+
+void FillSeek(DTC::CutList* pCutList, RecordingInfo* rInfo, MarkTypes marktype);
+
 
 #endif

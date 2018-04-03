@@ -9,8 +9,8 @@
 #include "mythuiexp.h"
 #include "themeinfo.h"
 
-#define DEFAULT_UI_THEME "Terra"
-#define FALLBACK_UI_THEME "MythCenter-wide"
+#define DEFAULT_UI_THEME "MythCenter"
+#define FALLBACK_UI_THEME "Terra"
 
 class MythUIHelperPrivate;
 class MThreadPool;
@@ -18,7 +18,6 @@ class MythPainter;
 class MythImage;
 class QImage;
 class QWidget;
-class Settings;
 class QPixmap;
 class QSize;
 
@@ -43,6 +42,7 @@ class MUI_PUBLIC MythUIHelper
 {
   public:
     void Init(MythUIMenuCallbacks &cbs);
+    void Init(void);
 
     MythUIMenuCallbacks *GetMenuCBs(void);
 
@@ -58,11 +58,10 @@ class MUI_PUBLIC MythUIHelper
     void RemoveFromCacheByFile(const QString &fname);
     bool IsImageInCache(const QString &url);
     QString GetThemeCacheDir(void);
+    QString GetCacheDirByUrl(QString url);
 
     void IncludeInCacheSize(MythImage *im);
     void ExcludeFromCacheSize(MythImage *im);
-
-    Settings *qtconfig(void);
 
     bool IsScreenSetup(void);
     bool IsTopScreenInitialized(void);
@@ -81,15 +80,13 @@ class MUI_PUBLIC MythUIHelper
     static void ParseGeometryOverride(const QString &geometry);
     bool IsGeometryOverridden(void);
 
-    QPixmap *LoadScalePixmap(QString filename, bool fromcache = true) MDEPRECATED;
-    QImage *LoadScaleImage(QString filename, bool fromcache = true) MDEPRECATED;
+    QPixmap *LoadScalePixmap(QString filename) MDEPRECATED;
+    QImage *LoadScaleImage(QString filename) MDEPRECATED;
     /// Returns a reference counted image from the cache.
     /// \note The reference count is set for one use call DecrRef() to delete.
     MythImage *LoadCacheImage(QString srcfile, QString label,
                               MythPainter *painter,
                               ImageCacheMode cacheMode = kCacheNormal);
-
-    void ThemeWidget(QWidget *widget);
 
     QString FindThemeDir(const QString &themename, bool doFallback = true);
     QString FindMenuThemeDir(const QString &menuname);
@@ -146,11 +143,11 @@ class MUI_PUBLIC MythUIHelper
    ~MythUIHelper();
 
   private:
-    void SetPalette(QWidget *widget);
     void InitializeScreenSettings(void);
 
     void ClearOldImageCache(void);
     void RemoveCacheDir(const QString &dirname);
+    void PruneCacheDir(QString dirname);
 
     MythUIHelperPrivate *d;
 

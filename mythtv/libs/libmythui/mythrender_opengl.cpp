@@ -28,6 +28,11 @@ using std::min;
 #include "util-nvctrl.h"
 #endif
 
+#ifdef Q_OS_ANDROID
+#include <android/log.h>
+#include <QWindow>
+#endif
+
 static const GLuint kTextureOffset = 8 * sizeof(GLfloat);
 
 static inline int __glCheck__(const QString &loc, const char* fileName, int n)
@@ -59,6 +64,23 @@ OpenGLLocker::~OpenGLLocker()
 MythRenderOpenGL* MythRenderOpenGL::Create(const QString &painter,
                                            QPaintDevice* device)
 {
+    QString display = getenv("DISPLAY");
+    // Determine if we are running a remote X11 session
+    // DISPLAY=:x or DISPLAY=unix:x are local
+    // DISPLAY=hostname:x is remote
+    // DISPLAY=/xxx/xxx/.../org.macosforge.xquartz:x is local OS X
+    // x can be numbers n or n.n
+    // Anything else including DISPLAY not set is assumed local,
+    // in that case we are probably not running under X11
+    if (!display.isEmpty()
+     && !display.startsWith(":")
+     && !display.startsWith("unix:")
+     && !display.startsWith("/")
+     && display.contains(':'))
+    {
+        LOG(VB_GENERAL, LOG_WARNING, LOC + "OpenGL is disabled for Remote X Session");
+        return 0;
+    }
 #ifdef USE_OPENGL_QT5
     MythRenderFormat format = QSurfaceFormat::defaultFormat();
     format.setDepthBufferSize(0);
@@ -263,6 +285,15 @@ void MythRenderOpenGL::setWidget(QWidget *w)
             m_window = w->windowHandle();
     }
 
+#ifdef ANDROID
+    // change all window surfacetypes to OpenGLSurface
+    // otherwise the raster gets painted on top of the GL surface
+    m_window->setSurfaceType(QWindow::OpenGLSurface);
+    QWidget* wNativeParent = w->nativeParentWidget();
+    if (wNativeParent)
+        wNativeParent->windowHandle()->setSurfaceType(QWindow::OpenGLSurface);
+#endif
+
     if (!create())
         LOG(VB_GENERAL, LOG_WARNING, LOC + "setWidget create failed");
     else if (w)
@@ -277,6 +308,16 @@ bool MythRenderOpenGL::IsDirectRendering() const
 void MythRenderOpenGL::setWidget(QGLWidget *w)
 {
     setDevice(w);
+
+#ifdef ANDROID
+    // change all window surfacetypes to OpenGLSurface
+    // otherwise the raster gets painted on top of the GL surface
+    m_window->setSurfaceType(QWindow::OpenGLSurface);
+    QWidget* wNativeParent = w->nativeParentWidget();
+    if (wNativeParent)
+        wNativeParent->windowHandle()->setSurfaceType(QWindow::OpenGLSurface);
+#endif
+
     w->setContext(this);
 }
 #endif
@@ -365,7 +406,8 @@ void MythRenderOpenGL::Flush(bool use_fence)
     }
     else
     {
-        glFlush();
+        if (m_flushEnabled)
+            glFlush();
     }
 
     doneCurrent();
@@ -509,6 +551,12 @@ uint MythRenderOpenGL::CreateTexture(QSize act_size, bool use_pbo,
                                      uint data_fmt, uint internal_fmt,
                                      uint filter, uint wrap)
 {
+#ifdef USING_OPENGLES
+    //OPENGLES requires same formats for internal and external.
+    internal_fmt = data_fmt;
+    glCheck();
+#endif
+
     if (!type)
         type = m_default_texture_type;
 
@@ -1136,6 +1184,7 @@ void MythRenderOpenGL::ResetVars(void)
     m_active_fb       = 0;
     m_blend           = false;
     m_background      = 0x00000000;
+    m_flushEnabled    = true;
 }
 
 void MythRenderOpenGL::ResetProcs(void)

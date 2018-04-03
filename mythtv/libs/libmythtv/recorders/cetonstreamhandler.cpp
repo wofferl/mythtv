@@ -16,9 +16,7 @@
 // Qt headers
 #include <QCoreApplication>
 #include <QUrl>
-#if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
 #include <QUrlQuery>
-#endif
 
 // MythTV headers
 #include "cetonstreamhandler.h"
@@ -29,14 +27,16 @@
 #include "cardutil.h"
 #include "mythdownloadmanager.h"
 
-#define LOC QString("CetonSH(%1): ").arg(_device)
+#define LOC QString("CetonSH%1(%2): ").arg(_recorder_ids_string) \
+                                      .arg(_device)
 
 QMap<QString,CetonStreamHandler*> CetonStreamHandler::_handlers;
 QMap<QString,uint>                CetonStreamHandler::_handlers_refcnt;
 QMutex                            CetonStreamHandler::_handlers_lock;
 QMap<QString, bool>               CetonStreamHandler::_info_queried;
 
-CetonStreamHandler *CetonStreamHandler::Get(const QString &devname)
+CetonStreamHandler *CetonStreamHandler::Get(const QString &devname,
+                                            int recorder_id)
 {
     QMutexLocker locker(&_handlers_lock);
 
@@ -65,10 +65,11 @@ CetonStreamHandler *CetonStreamHandler::Get(const QString &devname)
                 .arg(devname) + QString(" (%1 in use)").arg(rcount));
     }
 
+    _handlers[devkey]->AddRecorderId(recorder_id);
     return _handlers[devkey];
 }
 
-void CetonStreamHandler::Return(CetonStreamHandler * & ref)
+void CetonStreamHandler::Return(CetonStreamHandler * & ref, int recorder_id)
 {
     QMutexLocker locker(&_handlers_lock);
 
@@ -78,6 +79,10 @@ void CetonStreamHandler::Return(CetonStreamHandler * & ref)
     if (rit == _handlers_refcnt.end())
         return;
 
+    QMap<QString,CetonStreamHandler*>::iterator it = _handlers.find(devname);
+    if (it != _handlers.end())
+        (*it)->DelRecorderId(recorder_id);
+
     if (*rit > 1)
     {
         ref = NULL;
@@ -85,7 +90,6 @@ void CetonStreamHandler::Return(CetonStreamHandler * & ref)
         return;
     }
 
-    QMap<QString,CetonStreamHandler*>::iterator it = _handlers.find(devname);
     if ((it != _handlers.end()) && (*it == ref))
     {
         LOG(VB_RECORD, LOG_INFO, QString("CetonSH: Closing handler for %1")
@@ -334,11 +338,7 @@ bool CetonStreamHandler::TuneFrequency(
     _last_frequency = frequency;
     _last_modulation = modulation;
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    QUrl params;
-#else
     QUrlQuery params;
-#endif
     params.addQueryItem("instance_id", QString::number(_tuner));
     params.addQueryItem("frequency", QString::number(frequency));
     params.addQueryItem("modulation",modulation_id);
@@ -378,11 +378,7 @@ bool CetonStreamHandler::TuneProgram(uint program)
 
     _last_program = program;
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    QUrl params;
-#else
     QUrlQuery params;
-#endif
     params.addQueryItem("instance_id", QString::number(_tuner));
     params.addQueryItem("program", QString::number(program));
 
@@ -406,11 +402,7 @@ bool CetonStreamHandler::PerformTuneVChannel(const QString &vchannel)
     LOG(VB_RECORD, LOG_INFO, LOC + QString("PerformTuneVChannel(%1)")
         .arg(vchannel));
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    QUrl params;
-#else
     QUrlQuery params;
-#endif
     params.addQueryItem("instance_id", QString::number(_tuner));
     params.addQueryItem("channel", vchannel);
 
@@ -491,11 +483,7 @@ QString CetonStreamHandler::GetVar(
     QString loc = LOC + QString("DoGetVar(%1,%2,%3,%4) - ")
         .arg(_ip_address).arg(_tuner).arg(section,variable);
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    QUrl params;
-#else
     QUrlQuery params;
-#endif
     params.addQueryItem("i", QString::number(_tuner));
     params.addQueryItem("s", section);
     params.addQueryItem("v", variable);
@@ -527,11 +515,7 @@ QStringList CetonStreamHandler::GetProgramList()
     QString loc = LOC + QString("CetonHTTP: DoGetProgramList(%1,%2) - ")
         .arg(_ip_address).arg(_tuner);
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    QUrl params;
-#else
     QUrlQuery params;
-#endif
     params.addQueryItem("i", QString::number(_tuner));
 
     QString response;
@@ -560,11 +544,7 @@ QStringList CetonStreamHandler::GetProgramList()
 
 bool CetonStreamHandler::HttpRequest(
     const QString &method, const QString &script,
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    const QUrl &params,
-#else
     const QUrlQuery &params,
-#endif
     QString &response, uint &status_code) const
 {
     QUrl url;
@@ -585,11 +565,7 @@ bool CetonStreamHandler::HttpRequest(
 
     if ("GET" == method)
     {
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-        url.setEncodedQuery(params.encodedQuery());
-#else
         url.setQuery(params);
-#endif
         request->setUrl(url);
         if (manager->download(request, &data))
         {
@@ -609,11 +585,7 @@ bool CetonStreamHandler::HttpRequest(
         request->setUrl(url);
         request->setHeader(QNetworkRequest::ContentTypeHeader,
                            "application/x-www-form-urlencoded");
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-        data = params.encodedQuery();
-#else
         data = params.query(QUrl::FullyEncoded).toUtf8();
-#endif
         // Next line automagically added by Qt
         // request->setHeader(QNetworkRequest::ContentLengthHeader, data.size());
         if (manager->post(request, &data))

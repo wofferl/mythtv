@@ -1131,24 +1131,242 @@
 
     </window>
 
-    <window name="progdetails">
+    <window name="prevreclist">
+
+        <textarea name="sched" from="basetextarea">
+            <area>24,4,250,33,800x600</area>
+            <font>baselarge</font>
+            <value>Previously Recorded</value>
+        </textarea>
+        <textarea name="keyinstr" from="basetextarea">
+            <area>306,3,188,33,800x600</area>
+            <align>hcenter,bottom</align>
+            <value>(1) Time (2) Title</value>
+        </textarea>
+
+        <textarea name="curview" from="basetextarea">
+            <area>500,3,272,33,800x600</area>
+            <align>right,bottom</align>
+        </textarea>
+
+        <shape name="details_background" from="basebackground">
+            <area>24,40,752,216,800x600</area>
+        </shape>
+
+        <shape name="titles_background" from="basebackground">
+            <area>24,268,300,308,800x600</area>
+        </shape>
+
+        <shape name="shows_background" from="basebackground">
+            <area>336,268,440,308,800x600</area>
+        </shape>
+
+        <buttonlist name="titles" from="basebuttonlist2">
+            <area>34,272,280,304,800x600</area>
+            <spacing>0</spacing>
+            <buttonarea>0,0,280,304,800x600</buttonarea>
+            <statetype name="buttonitem">
+                <area>0,0,280,32,800x600</area>
+                <state name="active">
+                    <textarea name="buttontext" from="basetextarea">
+                        <area>5,0,270,32,800x600</area>
+                        <font>basesmallgrey</font>
+                        <cutdown>yes</cutdown>
+                        <align>left,vcenter</align>
+                    </textarea>
+                </state>
+                <state name="selectedactive" from="active">
+                    <textarea name="buttontext">
+                        <font>basesmall</font>
+                    </textarea>
+                    <shape name="selectbar">
+                        <area>0,0,280,32,800x600</area>
+                    </shape>
+                </state>
+                <state name="selectedinactive" from="selectedactive">
+                    <textarea name="buttontext">
+                        <font>basesmallpurple</font>
+                    </textarea>
+                    <shape name="selectbar">
+                        <area>0,0,280,32,800x600</area>
+                    </shape>
+                </state>
+            </statetype>
+            <statetype name="upscrollarrow">
+                <state type="off">
+                    <imagetype name="upon">
+                        <filename></filename>
+                    </imagetype>
+                </state>
+                <state type="full">
+                    <imagetype name="upoff">
+                        <filename></filename>
+                    </imagetype>
+                </state>
+            </statetype>
+            <statetype name="downscrollarrow">
+                <state type="off">
+                    <imagetype name="dnon">
+                        <filename></filename>
+                    </imagetype>
+                </state>
+                <state type="full">
+                    <imagetype name="dnoff">
+                        <filename></filename>
+                    </imagetype>
+                </state>
+            </statetype>
+        </buttonlist>
+
+        <buttonlist name="shows" from="titles">
+            <area>346,272,420,304,800x600</area>
+            <buttonarea>0,0,420,304,800x600</buttonarea>
+            <statetype name="buttonitem">
+                <area>0,0,420,32,800x600</area>
+                <state name="active">
+                    <textarea name="startdate" from="basetextarea">
+                        <area>5,0,115,32,800x600</area>
+                        <font>basesmall</font>
+                        <align>left,vcenter</align>
+                        <cutdown>no</cutdown>
+                    </textarea>
+                    <textarea name="parttitle" from="startdate">
+                        <area>125,0,280,32,800x600</area>
+                        <cutdown>yes</cutdown>
+                    </textarea>
+                    <textarea name="card" from="startdate">
+                        <area>405,0,10,32,800x600</area>
+                        <font state="disabled">basesmallpurple</font>
+                        <font state="error">basesmallred</font>
+                        <font state="warning">basesmallyellow</font>
+                        <font state="normal">basesmallblue</font>
+                        <font state="running">basesmallgreen</font>
+                        <cutdown>no</cutdown>
+                    </textarea>
+                </state>
+                <state name="selectedactive" from="active">
+                    <shape name="selectbar">
+                        <area>0,0,420,32,800x600</area>
+                    </shape>
+                </state>
+                <state name="selectedinactive" from="selectedactive" />
+                <state name="inactive" from="selectedactive" />
+            </statetype>
+        </buttonlist>
+
+        <textarea name="title" from="basetextarea">
+            <area>50,51,700,45,800x600</area>
+            <font>baselarge</font>
+        </textarea>
+        <textarea name="timedate" from="basetextarea">
+            <area>50,196,440,27,800x600</area>
+        </textarea>
+        <textarea name="channel" from="basetextarea">
+            <area>550,196,200,35,800x600</area>
+            <align>right</align>
+        </textarea>
+        <textarea name="rectypestatus" from="basetextarea">
+            <area>50,221,600,35,800x600</area>
+            <font>basesmallyellow</font>
+        </textarea>
+        <textarea name="description" from="basetextarea">
+            <area>50,86,700,120,800x600</area>
+            <multiline>yes</multiline>
+            <template>%"|SUBTITLE|"\n%%LONGREPEAT%%(|STARS|) %%DESCRIPTION%</template>
+        </textarea>
+
+        <textarea name="help1text" from="basetextarea">
+            <area>45,61,700,30,800x600</area>
+        </textarea>
+        <textarea name="help2text" from="basetextarea">
+            <area>45,116,700,120,800x600</area>
+            <multiline>yes</multiline>
+        </textarea>
+
+    </window>
+
+    <window name="programdetails">
 
         <textarea name="title" from="basetextarea">
             <area>40,20,720,40</area>
-            <font>baselarge</font>
+            <font>basemedium</font>
             <value>Program Details:</value>
         </textarea>
 
         <shape name="background" from="basebackground">
-            <area>40,60,720,500</area>
+            <area>40,60,-40,-30</area>
             <fill color="#000000"/>
         </shape>
 
-        <webbrowser name="browser">
-            <area>40,65,710,490</area>
-            <zoom>1.0</zoom>
-            <background color="#000000"/>
-        </webbrowser>
+        <buttonlist name="infolist">
+            <arrange>stack</arrange>
+            <align>top</align>
+            <area>40,70,-40,-30</area>
+            <layout>vertical</layout>
+            <spacing>5</spacing>
+            <buttonarea>20,0,-25,100%</buttonarea>
+
+            <statetype name="buttonitem">
+                <area>0,0,100%,240</area>
+                <minsize shrink="short">100%,5</minsize>
+
+                <state name="active">
+                    <area>0,0,100%,100%</area>
+                    <minsize shrink="short">100%,6</minsize>
+                    <shape name="background">
+                        <!-- work around a stack / minsize display bug by using
+                             empty image to help spacing -->
+                        <area>0,0,100%,100%</area>
+                        <minsize shrink="short">100%,5</minsize>
+                    </shape>
+                    <textarea name="name" from="basetextarea">
+                        <area>5,3,15%,-3</area>
+                        <minsize shrink="short">100%,5</minsize>
+                        <multiline>yes</multiline>
+                        <cutdown>no</cutdown>
+                        <align>top,right</align>
+                        <font>basesmallpurple</font>
+                    </textarea>
+                    <textarea name="sep">
+                        <area>16%,3,10,-3</area>
+                        <minsize shrink="short">100%,5</minsize>
+                        <align>top,left</align>
+                        <value>:</value>
+                        <font>basesmallpurple</font>
+                    </textarea>
+                    <textarea name="value">
+                        <area>16%+15,3,-10,-3</area>
+                        <minsize shrink="short">100%,5</minsize>
+                        <multiline>yes</multiline>
+                        <cutdown>no</cutdown>
+                        <align>top,left</align>
+                        <font>basesmall</font>
+                    </textarea>
+                </state>
+                <state name="selectedactive" from="active" />
+                <state name="selectedinactive" from="active" />
+            </statetype>
+
+            <scrollbar name="scrollbar">
+                <area>100%-20,30,15,-30</area>
+                <hidedelay>0</hidedelay>
+                <layout>vertical</layout>
+
+                <shape name="shadow">
+                    <area>0,0,100%,100%</area>
+                    <type>roundbox</type>
+                    <fill color="#FFFFFF" alpha="86" />
+                    <cornerradius>10</cornerradius>
+                </shape>
+                <shape name="slider">
+                    <area>1,0,-1,40</area>
+                    <type>roundbox</type>
+                    <cornerradius>8</cornerradius>
+                    <line color="#000000" alpha="255" width="2" />
+                    <fill color="#FFFF00" />
+                </shape>
+            </scrollbar>
+        </buttonlist>
     </window>
 
     <window name="searchpopup" from="MythTextInputDialog">
@@ -1641,50 +1859,50 @@
             <template>%"|SUBTITLE|" %%LONGREPEAT%%(|STARS|) %%DESCRIPTION%</template>
         </textarea>
 
-	<buttonlist name="filters" from="basebuttonlist">
-	    <area>200,210,400,290</area>
-	    <layout>vertical</layout>
-	    <spacing>0</spacing>
-	    <scrollstyle>free</scrollstyle>
-	    <wrapstyle>items</wrapstyle>
-	    <buttonarea>5,5,390,280</buttonarea>
-	    <statetype name="buttonitem">
-		<state name="active">
-		    <area>0,0,370,40</area>
-		    <textarea name="buttontext">
-			<area>50,5,-5,30</area>
-		    </textarea>
-		    <statetype name="buttoncheck">
-			<position>5,10</position>
-			<state type="off">
-			    <imagetype name="checkoff">
-				<filename>lb-check-empty.png</filename>
-			    </imagetype>
-			</state>
-			<state type="half">
-			    <imagetype name="checkhalf">
-				<filename>lb-check-half.png</filename>
-			    </imagetype>
-			</state>
-			<state type="full">
-			    <imagetype name="checkfull">
-				<filename>lb-check-full.png</filename>
-			    </imagetype>
-			</state>
-		    </statetype>
-		</state>
-		<state name="selectedactive" from="active">
-		    <shape name="background" from="baseselectedwidgetshape" />
-		</state>
-		<state name="selectedinactive" from="active" />
-	    </statetype>
+        <buttonlist name="filters" from="basebuttonlist">
+            <area>200,210,400,290</area>
+            <layout>vertical</layout>
+            <spacing>0</spacing>
+            <scrollstyle>free</scrollstyle>
+            <wrapstyle>items</wrapstyle>
+            <buttonarea>5,5,390,280</buttonarea>
+            <statetype name="buttonitem">
+                <state name="active">
+                    <area>0,0,370,40</area>
+                    <textarea name="buttontext">
+                        <area>50,5,-5,30</area>
+                    </textarea>
+                    <statetype name="buttoncheck">
+                        <position>5,10</position>
+                        <state type="off">
+                            <imagetype name="checkoff">
+                                <filename>lb-check-empty.png</filename>
+                            </imagetype>
+                        </state>
+                        <state type="half">
+                            <imagetype name="checkhalf">
+                                <filename>lb-check-half.png</filename>
+                            </imagetype>
+                        </state>
+                        <state type="full">
+                            <imagetype name="checkfull">
+                                <filename>lb-check-full.png</filename>
+                            </imagetype>
+                        </state>
+                    </statetype>
+                </state>
+                <state name="selectedactive" from="active">
+                    <shape name="background" from="baseselectedwidgetshape" />
+                </state>
+                <state name="selectedinactive" from="active" />
+            </statetype>
             <statetype name="upscrollarrow">
                 <position>380,5</position>
             </statetype>
             <statetype name="downscrollarrow">
                 <position>380,267</position>
             </statetype>
-	</buttonlist>
+        </buttonlist>
 
         <button name="back" from="basebutton">
             <position>40,525</position>

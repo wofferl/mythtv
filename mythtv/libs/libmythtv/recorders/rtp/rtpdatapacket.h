@@ -31,9 +31,16 @@ class RTPDataPacket : public UDPPacket
 {
   public:
     RTPDataPacket(const RTPDataPacket &o) : UDPPacket(o), m_off(o.m_off) { }
-    RTPDataPacket(const UDPPacket &o) : UDPPacket(o), m_off(0) { }
-    RTPDataPacket(uint64_t key) : UDPPacket(key), m_off(0) { }
+    explicit RTPDataPacket(const UDPPacket &o) : UDPPacket(o), m_off(0) { }
+    explicit RTPDataPacket(uint64_t key) : UDPPacket(key), m_off(0) { }
     RTPDataPacket(void) : UDPPacket(0ULL), m_off(0) { }
+
+    RTPDataPacket& operator=(const RTPDataPacket &rhs)
+    {
+        UDPPacket::operator=(rhs);
+        m_off = rhs.m_off;
+        return *this;
+    }
 
     bool IsValid(void) const
     {

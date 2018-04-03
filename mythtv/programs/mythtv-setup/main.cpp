@@ -75,28 +75,62 @@ static void SetupMenuCallback(void* /* data */, QString& selection)
 
     if (sel == "general")
     {
-        BackendSettings be;
-        be.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "generalsettings",
+                                      new BackendSettings());
+
+        if (ssd->Create())
+            mainStack->AddScreen(ssd);
+        else
+            delete ssd;
     }
     else if (sel == "capture cards")
     {
-        CaptureCardEditor cce;
-        cce.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "capturecardeditor",
+                                      new CaptureCardEditor());
+
+        if (ssd->Create())
+            mainStack->AddScreen(ssd);
+        else
+            delete ssd;
     }
     else if (sel == "video sources")
     {
-        VideoSourceEditor vse;
-        vse.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "videosourceeditor",
+               new VideoSourceEditor());
+        if (ssd->Create())
+            mainStack->AddScreen(ssd);
+        else
+            delete ssd;
     }
     else if (sel == "card inputs")
     {
-        CardInputEditor cie;
-        cie.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "cardinputeditor",
+                                      new CardInputEditor());
+
+        if (ssd->Create())
+            mainStack->AddScreen(ssd);
+        else
+            delete ssd;
     }
     else if (sel == "recording profile")
     {
-        ProfileGroupEditor editor;
-        editor.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "recordingprofileeditor",
+                                      new ProfileGroupEditor());
+
+        if (ssd->Create())
+            mainStack->AddScreen(ssd);
+        else
+            delete ssd;
     }
     else if (sel == "channel editor")
     {
@@ -111,8 +145,15 @@ static void SetupMenuCallback(void* /* data */, QString& selection)
     }
     else if (sel == "storage groups")
     {
-        StorageGroupListEditor sge;
-        sge.exec();
+        MythScreenStack *mainStack = GetMythMainWindow()->GetMainStack();
+        StandardSettingDialog *ssd =
+            new StandardSettingDialog(mainStack, "storagegroupeditor",
+                                      new StorageGroupListEditor());
+
+        if (ssd->Create())
+            mainStack->AddScreen(ssd);
+        else
+            delete ssd;
     }
     else if (sel == "systemeventeditor")
     {
@@ -224,8 +265,8 @@ static int reloadTheme(void)
 
 int main(int argc, char *argv[])
 {
-    QString geometry = QString::null;
-    QString display  = QString::null;
+    QString geometry;
+    QString display;
     bool    doScan   = false;
     bool    doScanList = false;
     bool    doScanSaveOnly = false;
@@ -237,6 +278,10 @@ int main(int argc, char *argv[])
     uint    scanCardId = 0;
     QString scanTableName = "atsc-vsb8-us";
     QString scanInputName = "";
+
+#if CONFIG_OMX_RPI
+    setenv("QT_XCB_GL_INTEGRATION","none",0);
+#endif
 
     MythTVSetupCommandLineParser cmdline;
     if (!cmdline.Parse(argc, argv))
@@ -349,7 +394,8 @@ int main(int argc, char *argv[])
 
     gContext = new MythContext(MYTH_BINARY_VERSION);
 
-    if (!gContext->Init(use_display)) // No Upnp, Prompt for db
+    cmdline.ApplySettingsOverride();
+    if (!gContext->Init(use_display,false,true)) // No Upnp, Prompt for db
     {
         LOG(VB_GENERAL, LOG_ERR, "Failed to init MythContext, exiting.");
         return GENERIC_EXIT_NO_MYTHCONTEXT;
@@ -444,23 +490,34 @@ int main(int argc, char *argv[])
         QMap<QString,QString> startChan;
         {
             ChannelScannerCLI scanner(doScanSaveOnly, scanInteractive);
-            scanner.Scan(
-                (freq_std=="atsc") ?
-                ScanTypeSetting::FullScan_ATSC :
-                ((freq_std=="dvbt") ?
-                 ScanTypeSetting::FullScan_DVBT :
-                 ScanTypeSetting::FullScan_ATSC),
-                /* cardid    */ scanCardId,
-                /* inputname */ scanInputName,
-                /* sourceid  */ sourceid,
-                /* ignore signal timeout */ false,
-                /* follow_nit */            true,
-                /* test decryption */       true,
-                scanFTAOnly,
-                scanServiceRequirements,
-                // stuff needed for particular scans
-                /* mplexid   */ 0,
-                startChan, freq_std, mod, tbl);
+
+            int scantype;
+            if (freq_std == "atsc")
+                scantype = ScanTypeSetting::FullScan_ATSC;
+            else if (freq_std == "dvbt")
+                scantype = ScanTypeSetting::FullScan_DVBT;
+            else if (freq_std == "mpeg")
+                scantype = ScanTypeSetting::CurrentTransportScan;
+            else if (freq_std == "iptv")
+            {
+                scantype = ScanTypeSetting::IPTVImportMPTS;
+                scanner.ImportM3U(scanCardId, scanInputName, sourceid, true);
+            }
+            else
+                scantype = ScanTypeSetting::FullScan_ATSC;
+
+            scanner.Scan(scantype,
+                         /* cardid    */ scanCardId,
+                         /* inputname */ scanInputName,
+                         /* sourceid  */ sourceid,
+                         /* ignore signal timeout */ false,
+                         /* follow_nit */            true,
+                         /* test decryption */       true,
+                         scanFTAOnly,
+                         scanServiceRequirements,
+                         // stuff needed for particular scans
+                         /* mplexid   */ 0,
+                         startChan, freq_std, mod, tbl);
             ret = qApp->exec();
         }
         return (ret) ? GENERIC_EXIT_NOT_OK : GENERIC_EXIT_OK;

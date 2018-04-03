@@ -13,7 +13,8 @@
 // ANSI C headers
 #include <cstdlib>
 
-#include <unistd.h> // for usleep()
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 // Qt headers
 #include <QStringList>
@@ -107,7 +108,13 @@ void UPnpNotifyTask::SendNotifyMsg( MSocketDevice *pSocket,
             continue;
         }
 
-        QString ipaddress = (*it).toString();
+        QHostAddress ip = *it;
+        // Descope the Link Local address. The scope is only valid
+        // on the server sending the announcement, not the clients
+        // that receive it
+        ip.setScopeId(QString());
+
+        QString ipaddress = ip.toString();
 
         // If this looks like an IPv6 address, then enclose it in []'s
         if (ipaddress.contains(":"))
@@ -128,7 +135,7 @@ void UPnpNotifyTask::SendNotifyMsg( MSocketDevice *pSocket,
 
         pSocket->writeBlock( scPacket, scPacket.length(),
                              pSocket->address(), pSocket->port() );
-        usleep( random() % 250000 );
+        std::this_thread::sleep_for(std::chrono::milliseconds(random() % 250));
         pSocket->writeBlock( scPacket, scPacket.length(),
                              pSocket->address(), pSocket->port() );
     }

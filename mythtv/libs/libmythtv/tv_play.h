@@ -68,7 +68,6 @@ typedef void (*EMBEDRETURNVOIDSCHEDIT) (const ProgramInfo *, void *);
 //            -> progListLock    -> osdLock
 //            -> chanEditMapLock -> osdLock
 //            -> lastProgramLock
-//            -> is_tunable_cache_lock
 //            -> recorderPlaybackInfoLock
 //            -> timerIdLock
 //            -> mainLoopCondLock
@@ -274,8 +273,8 @@ private:
  * \class TV
  *
  * \brief Control TV playback
- * \qmlsignal TVPlaybackAborted(void)
  *
+ * \qmlsignal TVPlaybackAborted(void)
  * TV playback failed to start (typically, TV playback was started when another playback is currently going)
  * \qmlsignal TVPlaybackStarted(void)
  * TV playback has started, video is now playing
@@ -424,13 +423,8 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
                       int editType = kScheduleProgramGuide);
     bool StartEmbedding(const QRect&);
     void StopEmbedding(void);
-    bool IsTunable(const PlayerContext*, uint chanid,
-                   bool use_cache = false);
-    QSet<uint> IsTunableOn(const PlayerContext*, uint chanid,
-                           bool use_cache, bool early_exit);
-    static QSet<uint> IsTunableOn(TV *tv, const PlayerContext*, uint chanid,
-                                  bool use_cache, bool early_exit);
-    void ClearTunableCache(void);
+    bool IsTunable(const PlayerContext*, uint chanid);
+    static QSet<uint> IsTunableOn(const PlayerContext*, uint chanid);
     void ChangeChannel(const PlayerContext*, const ChannelInfoList &options);
     void DrawUnusedRects(void);
     void DoEditSchedule(int editType = kScheduleProgramGuide);
@@ -493,7 +487,7 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
 
     bool StartRecorder(PlayerContext *ctx, int maxWait=-1);
     void StopStuff(PlayerContext *mctx, PlayerContext *ctx,
-                   bool stopRingbuffers, bool stopPlayers, bool stopRecorders);
+                   bool stopRingBuffer, bool stopPlayer, bool stopRecorder);
     void TeardownPlayer(PlayerContext *mctx, PlayerContext *ctx);
 
 
@@ -638,7 +632,7 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
     void UpdateOSDSeekMessage(const PlayerContext*,
                               const QString &mesg, enum OSDTimeout timeout);
     void UpdateOSDInput(const PlayerContext*,
-                        QString inputname = QString::null);
+                        QString inputname = QString());
     void UpdateOSDSignal(const PlayerContext*, const QStringList &strlist);
     void UpdateOSDTimeoutMessage(PlayerContext*);
     void UpdateOSDAskAllowDialog(PlayerContext*);
@@ -748,7 +742,7 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
     bool HandleOSDVideoExit(PlayerContext *ctx, QString action);
 
     // Menu dialog
-    void ShowOSDMenu(const PlayerContext*, bool isCompact = false);
+    void ShowOSDMenu(bool isCompact = false);
 
     void FillOSDMenuJumpRec  (PlayerContext* ctx, const QString &category = "",
                               int level = 0, const QString &selected = "");
@@ -796,7 +790,6 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
     bool    db_use_gui_size_for_tv;
     bool    db_start_in_guide;
     bool    db_clear_saved_position;
-    bool    db_toggle_bookmark;
     bool    db_run_jobs_on_remote;
     bool    db_continue_embedded;
     bool    db_use_fixed_size;
@@ -955,10 +948,6 @@ class MTV_PUBLIC TV : public QObject, public MenuItemDisplayer
     bool         isEmbedded;       ///< are we currently embedded
     bool         ignoreKeyPresses; ///< should we ignore keypresses
     vector<bool> saved_pause;      ///< saved pause state before embedding
-
-    // IsTunable() cache, used by embedded program guide
-    mutable QMutex                 is_tunable_cache_lock;
-    QMap< uint,vector<InputInfo> > is_tunable_cache_inputs;
 
     // Channel group stuff
     /// \brief Lock necessary when modifying channel group variables.

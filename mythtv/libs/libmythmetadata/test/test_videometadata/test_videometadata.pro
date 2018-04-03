@@ -1,20 +1,14 @@
 include ( ../../../../settings.pro )
 
-QT += xml sql network
-
-contains(QT_VERSION, ^4\\.[0-9]\\..*) {
-CONFIG += qtestlib
-}
-contains(QT_VERSION, ^5\\.[0-9]\\..*) {
-QT += testlib
-}
+QT += xml sql network testlib
 
 TEMPLATE = app
 TARGET = test_videometadata
 DEPENDPATH += . ../.. ../../../libmythbase ../../../libmythtv ../../../libmyth
 DEPENDPATH += ../../../libmythui
 INCLUDEPATH += . ../.. ../../../libmythbase ../../../libmythtv ../../../libmyth
-INCLUDEPATH += ../../../libmythui
+INCLUDEPATH += ../../../libmythui ../../../libmythservicecontracts
+
 LIBS += -L../../../libmythbase -lmythbase-$$LIBVERSION
 LIBS += -L../.. -lmythmetadata-$$LIBVERSION
 # libmyth and libmythtv for ProgramInfo and RecordingInfo
@@ -22,6 +16,17 @@ LIBS += -L../../../libmyth -lmyth-$$LIBVERSION
 LIBS += -L../../../libmythtv -lmythtv-$$LIBVERSION
 # libmythui for MythUIProgressDialog
 LIBS += -L../../../libmythui -lmythui-$$LIBVERSION
+LIBS += -L../../../libmythupnp -lmythupnp-$$LIBVERSION
+LIBS += -L../../../libmythservicecontracts -lmythservicecontracts-$$LIBVERSION
+LIBS += -L../../../../external/FFmpeg/libswresample -lmythswresample
+LIBS += -L../../../../external/FFmpeg/libavutil -lmythavutil
+LIBS += -L../../../../external/FFmpeg/libavcodec -lmythavcodec
+LIBS += -L../../../../external/FFmpeg/libswscale -lmythswscale
+LIBS += -L../../../../external/FFmpeg/libavformat -lmythavformat
+LIBS += -L../../../../external/FFmpeg/libavfilter -lmythavfilter
+LIBS += -L../../../../external/FFmpeg/libpostproc -lmythpostproc
+using_mheg:LIBS += -L../../../libmythfreemheg -lmythfreemheg-$$LIBVERSION
+using_hdhomerun:LIBS += -L../../../../external/libhdhomerun -lmythhdhomerun-$$LIBVERSION
 
 contains(QMAKE_CXX, "g++") {
   QMAKE_CXXFLAGS += -O0 -fprofile-arcs -ftest-coverage
@@ -57,6 +62,9 @@ HEADERS += test_videometadata.h
 SOURCES += test_videometadata.cpp
 
 QMAKE_CLEAN += $(TARGET) $(TARGETA) $(TARGETD) $(TARGET0) $(TARGET1) $(TARGET2)
-QMAKE_CLEAN += ; rm -f *.gcov *.gcda *.gcno
+QMAKE_CLEAN += ; ( cd $(OBJECTS_DIR) && rm -f *.gcov *.gcda *.gcno )
 
 LIBS += $$EXTRA_LIBS $$LATE_LIBS
+
+# Fix runtime linking on Ubuntu 17.10.
+linux:QMAKE_LFLAGS += -Wl,--disable-new-dtags

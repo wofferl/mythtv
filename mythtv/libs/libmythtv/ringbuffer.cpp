@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
+#include <chrono> // for milliseconds
+#include <thread> // for sleep_for
 
 // POSIX C headers
 #include <sys/types.h>
@@ -96,9 +98,9 @@ bool        RingBuffer::gAVformat_net_initialised = false;
  *   You can explicitly disable the readahead thread by setting
  *   readahead to false, or by just not calling Start(void).
  *
- *  \param lfilename    Name of file to read or write.
+ *  \param xfilename    Name of file to read or write.
  *  \param write        If true an encapsulated writer is created
- *  \param readahead    If false a call to Start(void) will not
+ *  \param usereadahead If false a call to Start(void) will not
  *                      a pre-buffering thread, otherwise Start(void)
  *                      will start a pre-buffering thread.
  *  \param timeout_ms   if < 0, then we will not open the file.
@@ -270,7 +272,7 @@ RingBuffer::RingBuffer(RingBufferType rbtype) :
 #include <cassert>
 
 /** \brief Deletes
- *  \Note Classes inheriting from RingBuffer must implement
+ *  \note Classes inheriting from RingBuffer must implement
  *        a destructor that calls KillReadAheadThread().
  *        We can not do that here because this would leave
  *        pure virtual functions without implementations
@@ -332,7 +334,7 @@ void RingBuffer::Reset(bool full, bool toAdjust, bool resetInternal)
     rwlock.unlock();
 }
 
-/** \fn RingBuffer::UpdateRawBitrate(uint)
+/**
  *  \brief Set the raw bit rate, to allow RingBuffer adjust effective bitrate.
  *  \param raw_bitrate Streams average number of kilobits per second when
  *                     playspeed is 1.0
@@ -467,7 +469,7 @@ void RingBuffer::CalcReadAheadThresh(void)
             .arg(fill_min/1024).arg(readblocksize/1024));
 }
 
-bool RingBuffer::IsNearEnd(double fps, uint vvf) const
+bool RingBuffer::IsNearEnd(double /*fps*/, uint vvf) const
 {
     QReadLocker lock(&rwlock);
 
@@ -1228,7 +1230,7 @@ void RingBuffer::run(void)
             // like us, yield (currently implemented with short usleep).
             generalWait.wakeAll();
             rwlock.unlock();
-            usleep(5 * 1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             rwlock.lockForRead();
         }
         else
@@ -1244,7 +1246,7 @@ void RingBuffer::run(void)
               // reader gets a chance to read before the buffer is full.
                 generalWait.wakeAll();
                 rwlock.unlock();
-                usleep(5 * 1000);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 rwlock.lockForRead();
             }
         }
@@ -1297,10 +1299,10 @@ int RingBuffer::Peek(void *buf, int count)
 
 bool RingBuffer::WaitForReadsAllowed(void)
 {
-    // Wait up to 10000 ms for reads allowed (or readsdesired if post seek/open)
+    // Wait up to 30000 ms for reads allowed (or readsdesired if post seek/open)
     bool &check = (recentseek || readInternalMode) ? readsdesired : readsallowed;
     recentseek = false;
-    int timeout_ms = 10000;
+    int timeout_ms = 30000;
     int count = 0;
     MythTimer t;
     t.start();
@@ -1309,7 +1311,7 @@ bool RingBuffer::WaitForReadsAllowed(void)
            !request_pause && !commserror && readaheadrunning)
     {
         generalWait.wait(&rwlock, clamp(timeout_ms - t.elapsed(), 10, 100));
-        if (!check && t.elapsed() > 1000 && (count % 10) == 0)
+        if (!check && t.elapsed() > 1000 && (count % 100) == 0)
         {
             LOG(VB_GENERAL, LOG_WARNING, LOC +
                 "Taking too long to be allowed to read..");
@@ -1517,7 +1519,7 @@ int RingBuffer::ReadPriv(void *buf, int count, bool peek)
         if (avail > 0)
             break;
     }
-    if (t.elapsed() > 2000)
+    if (t.elapsed() > 6000)
     {
         LOG(VB_GENERAL, LOG_WARNING, LOC + loc_desc +
             QString(" -- waited %1 ms for avail(%2) > count(%3)")

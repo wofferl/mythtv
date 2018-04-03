@@ -53,7 +53,7 @@ class ScreenSaverDBusPrivate
     {
         if (!m_interface->isValid())
         {
-            LOG(VB_GENERAL, LOG_WARNING, LOC + "Could not connect to dbus: " +
+            LOG(VB_GENERAL, LOG_DEBUG, LOC + "Could not connect to dbus: " +
                 m_interface->lastError().message());
         }
         else
@@ -111,6 +111,8 @@ class ScreenSaverDBusPrivate
     QDBusConnection *m_bus;
     QDBusInterface  *m_interface;
   private:
+    // Disable copying and assignment
+    Q_DISABLE_COPY(ScreenSaverDBusPrivate)
     QString         m_unInhibit;
     QString         m_serviceUsed;
 };

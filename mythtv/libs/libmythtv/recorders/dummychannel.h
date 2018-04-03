@@ -16,11 +16,11 @@ using namespace std;
 class DummyChannel : public ChannelBase
 {
   public:
-    DummyChannel(TVRec *parent): ChannelBase(parent)
+    explicit DummyChannel(TVRec *parent): ChannelBase(parent)
         { (void)parent; m_curchannelname.clear(); curinputname.clear(); return; }
     ~DummyChannel(void) { return; }
 
-    bool IsTunable(const QString &channum) const
+    bool IsTunable(const QString &/*channum*/) const
         { return true; }
 
     bool Open(void)     { return InitializeInput(); }

@@ -7,6 +7,7 @@
 #include "mythtvexp.h"
 #include "programinfo.h"
 #include "recordingfile.h"
+#include "enums/recStatus.h"
 
 class RecordingRule;
 
@@ -39,6 +40,7 @@ class MTV_PUBLIC RecordingInfo : public ProgramInfo
         future(false),
         schedorder(0),
         mplexid(0),
+        sgroupid(0),
         desiredrecstartts(),
         desiredrecendts(),
         record(NULL),
@@ -50,28 +52,31 @@ class MTV_PUBLIC RecordingInfo : public ProgramInfo
         future(other.future),
         schedorder(other.schedorder),
         mplexid(other.mplexid),
+        sgroupid(other.sgroupid),
         desiredrecstartts(other.desiredrecstartts),
         desiredrecendts(other.desiredrecendts),
         record(NULL),
         m_recordingFile(NULL)  { LoadRecordingFile(); }
-    RecordingInfo(const ProgramInfo &other) :
+    explicit RecordingInfo(const ProgramInfo &other) :
         ProgramInfo(other),
         oldrecstatus(RecStatus::Unknown),
         savedrecstatus(RecStatus::Unknown),
         future(false),
         schedorder(0),
         mplexid(0),
+        sgroupid(0),
         desiredrecstartts(startts),
         desiredrecendts(endts),
         record(NULL),
         m_recordingFile(NULL)  { LoadRecordingFile(); }
-    RecordingInfo(uint _recordedid) :
+    explicit RecordingInfo(uint _recordedid) :
         ProgramInfo(_recordedid),
         oldrecstatus(RecStatus::Unknown),
         savedrecstatus(RecStatus::Unknown),
         future(false),
         schedorder(0),
         mplexid(0),
+        sgroupid(0),
         desiredrecstartts(startts),
         desiredrecendts(endts),
         record(NULL),
@@ -83,6 +88,7 @@ class MTV_PUBLIC RecordingInfo : public ProgramInfo
         future(false),
         schedorder(0),
         mplexid(0),
+        sgroupid(0),
         desiredrecstartts(startts),
         desiredrecendts(endts),
         record(NULL),
@@ -95,6 +101,7 @@ class MTV_PUBLIC RecordingInfo : public ProgramInfo
         future(false),
         schedorder(0),
         mplexid(0),
+        sgroupid(0),
         desiredrecstartts(startts),
         desiredrecendts(endts),
         record(NULL),
@@ -163,7 +170,9 @@ class MTV_PUBLIC RecordingInfo : public ProgramInfo
         uint audioproperties,
         bool future,
         int schedorder,
-        uint mplexid);
+        uint mplexid,
+        uint sgroupid,
+        const QString &inputname);
 
     /// Create RecordingInfo from 'record'+'channel' tables,
     /// user in scheduler.cpp  @ ~ 3566 & ~ 3643
@@ -306,6 +315,7 @@ class MTV_PUBLIC RecordingInfo : public ProgramInfo
     bool future;
     int schedorder;
     uint mplexid; // Only valid within the scheduler
+    uint sgroupid; // Only valid within the scheduler
     QDateTime desiredrecstartts;
     QDateTime desiredrecendts;
 

@@ -147,13 +147,8 @@ void FillProgramInfo( DTC::Program *pProgram,
             pRecording->setDupInType   ( pRecInfo.GetDuplicateCheckSource() );
             pRecording->setDupMethod   ( pRecInfo.GetDuplicateCheckMethod() );
             pRecording->setEncoderId   ( pRecInfo.GetInputID()              );
-            if (pProgram->Channel())
-            {
-                QString encoderName = CardUtil::GetDisplayName(pRecInfo.GetInputID());
-                pRecording->setEncoderName( encoderName );
-            }
-
-            pRecording->setProfile( pRecInfo.GetProgramRecordingProfile() );
+            pRecording->setEncoderName ( pRecInfo.GetInputName()            );
+            pRecording->setProfile     ( pRecInfo.GetProgramRecordingProfile() );
         }
     }
 
@@ -223,6 +218,28 @@ bool FillChannelInfo( DTC::ChannelInfo *pChannel,
         pChannel->setUseEIT(channelInfo.useonairguide);
         pChannel->setXMLTVID(channelInfo.xmltvid);
         pChannel->setDefaultAuth(channelInfo.default_authority);
+
+        QList<uint> groupIds = channelInfo.GetGroupIds();
+        QString sGroupIds;
+        for (int x = 0; x < groupIds.size(); x++)
+        {
+            if (x > 0)
+                sGroupIds += ",";
+
+            sGroupIds += QString::number(groupIds.at(x));
+        }
+        pChannel->setChannelGroups(sGroupIds);
+
+        QList<uint> inputIds = channelInfo.GetInputIds();
+        QString sInputIds;
+        for (int x = 0; x < inputIds.size(); x++)
+        {
+            if (x > 0)
+                sInputIds += ",";
+
+            sInputIds += QString::number(inputIds.at(x));
+        }
+        pChannel->setInputs(sInputIds);
     }
 
     return true;
@@ -349,6 +366,33 @@ void FillArtworkInfoList( DTC::ArtworkInfoList *pArtworkInfoList,
 //
 /////////////////////////////////////////////////////////////////////////////
 
+void FillGenreList(DTC::GenreList* pGenreList, int videoID)
+{
+    if (!pGenreList)
+        return;
+
+    MSqlQuery query(MSqlQuery::InitCon());
+    query.prepare("SELECT genre from videogenre "
+                  "LEFT JOIN videometadatagenre ON videometadatagenre.idgenre = videogenre.intid "
+                  "WHERE idvideo = :ID "
+                  "ORDER BY genre;");
+    query.bindValue(":ID",    videoID);
+
+    if (query.exec() && query.size() > 0)
+    {
+        while (query.next())
+        {
+            DTC::Genre *pGenre = pGenreList->AddNewGenre();
+            QString genre = query.value(0).toString();
+            pGenre->setName(genre);
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
 void FillVideoMetadataInfo (
                       DTC::VideoMetadataInfo *pVideoMetadataInfo,
                       VideoMetadataListManager::VideoMetadataPtr pMetadata,
@@ -372,6 +416,7 @@ void FillVideoMetadataInfo (
         QDateTime(pMetadata->GetInsertdate(),
                   QTime(0,0),Qt::LocalTime).toUTC());
     pVideoMetadataInfo->setUserRating(pMetadata->GetUserRating());
+    pVideoMetadataInfo->setChildID(pMetadata->GetChildID());
     pVideoMetadataInfo->setLength(pMetadata->GetLength());
     pVideoMetadataInfo->setPlayCount(pMetadata->GetPlayCount());
     pVideoMetadataInfo->setSeason(pMetadata->GetSeason());
@@ -434,6 +479,37 @@ void FillVideoMetadataInfo (
                               "&FileName=%2").arg("Screenshots")
                               .arg(pMetadata->GetScreenshot()));
         }
+    }
+
+    FillGenreList(pVideoMetadataInfo->Genres(), pVideoMetadataInfo->Id());
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+void FillMusicMetadataInfo (DTC::MusicMetadataInfo *pVideoMetadataInfo,
+                            MusicMetadata *pMetadata, bool bDetails)
+{
+    pVideoMetadataInfo->setId(pMetadata->ID());
+    pVideoMetadataInfo->setArtist(pMetadata->Artist());
+    pVideoMetadataInfo->setCompilationArtist(pMetadata->CompilationArtist());
+    pVideoMetadataInfo->setAlbum(pMetadata->Album());
+    pVideoMetadataInfo->setTitle(pMetadata->Title());
+    pVideoMetadataInfo->setTrackNo(pMetadata->Track());
+    pVideoMetadataInfo->setGenre(pMetadata->Genre());
+    pVideoMetadataInfo->setYear(pMetadata->Year());
+    pVideoMetadataInfo->setPlayCount(pMetadata->PlayCount());
+    pVideoMetadataInfo->setLength(pMetadata->Length());
+    pVideoMetadataInfo->setRating(pMetadata->Rating());
+    pVideoMetadataInfo->setFileName(pMetadata->Filename());
+    pVideoMetadataInfo->setHostName(pMetadata->Hostname());
+    pVideoMetadataInfo->setLastPlayed(pMetadata->LastPlay());
+    pVideoMetadataInfo->setCompilation(pMetadata->Compilation());
+
+    if (bDetails)
+    {
+        //TODO add coverart here
     }
 }
 
@@ -616,6 +692,28 @@ void FillCommBreak(DTC::CutList* pCutList, RecordingInfo* rInfo, int marktype)
                   pCutting->setOffset(offset);
                 }
             }
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
+void FillSeek(DTC::CutList* pCutList, RecordingInfo* rInfo, MarkTypes marktype)
+{
+    frm_pos_map_t markMap;
+    frm_pos_map_t::const_iterator it;
+
+    if (rInfo && rInfo->GetChanID())
+    {
+        rInfo->QueryPositionMap(markMap, marktype);
+
+        for (it = markMap.begin(); it != markMap.end(); ++it)
+        {
+            DTC::Cutting *pCutting = pCutList->AddNewCutting();
+            pCutting->setMark(it.key());
+            pCutting->setOffset(it.value());
         }
     }
 }
