@@ -1578,7 +1578,7 @@ bool ChannelUtil::UpdateChannel(uint db_mplexid,
         return false;
 
     QString tvformat = (atsc_minor_channel > 0) ? "ATSC" : format;
-    bool set_channum = !chan_num.isEmpty() && chan_num != "-1";
+    bool set_channum = 0;//!chan_num.isEmpty() && chan_num != "-1";
     QString qstr = QString(
         "UPDATE channel "
         "SET %1 %2 %3 %4 %5 %6"
