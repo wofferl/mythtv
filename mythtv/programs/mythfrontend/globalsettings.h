@@ -52,7 +52,9 @@ class VideoModeSettings : public HostCheckBoxSetting
 
   public:
     VideoModeSettings(const char *c);
+#if defined(USING_XRANDR)
     virtual void updateButton(MythUIButtonListItem *item);
+#endif
 };
 
 class LcdSettings
@@ -149,8 +151,10 @@ class HostRefreshRateComboBoxSetting : public HostComboBoxSetting
         HostComboBoxSetting(name) { }
     virtual ~HostRefreshRateComboBoxSetting() { }
 
+#if defined(USING_XRANDR)
   public slots:
     virtual void ChangeResolution(StandardSetting *);
+#endif
 
   private:
     static const vector<double> GetRefreshRates(const QString &resolution);
