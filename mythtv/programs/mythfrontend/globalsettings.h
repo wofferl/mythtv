@@ -153,6 +153,7 @@ class HostRefreshRateComboBoxSetting : public HostComboBoxSetting
 
 #if defined(USING_XRANDR)
   public slots:
+#if defined(USING_XRANDR) || CONFIG_DARWIN
     virtual void ChangeResolution(StandardSetting *);
 #endif
 
@@ -266,7 +267,7 @@ class ChannelGroupSetting : public GroupSetting
   public:
     ChannelGroupSetting(const QString &groupName, int groupId);
     virtual void Load();
-    virtual void Close();
+    virtual void Save();
     virtual bool canDelete(void);
     virtual void deleteEntry(void);
 
