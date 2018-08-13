@@ -54,6 +54,23 @@
  *       + <Track 1>                 Music/Album=789/Track=1
  *       + <Track 2>                 Music/Album=789/Track=2
  *
+ *   - By Top Played Artist          Music/Artist (sorted by numplays)
+ *     - <Artist 1>                  Music/Artist=123
+ *       - <Album 1>                 Music/Artist=123/Album=345
+ *         + <Track 1>               Music/Artist=123/Album=345/Track=1
+ *         + <Track 2>               Music/Artist=123/Album=345/Track=2
+ *
+ *   - By Top Played Album           Music/Album (sorted by numplays)
+ *     - <Album 1>                   Music/Album=789
+ *       + <Track 1>                 Music/Album=789/Track=1
+ *       + <Track 2>                 Music/Album=789/Track=2
+ *
+ *   - Random Artist                 Music/Artist (sorted by numplays)
+ *     - <Artist 1>                  Music/Artist=123
+ *       - <Album 1>                 Music/Artist=123/Album=345
+ *         + <Track 1>               Music/Artist=123/Album=345/Track=1
+ *         + <Track 2>               Music/Artist=123/Album=345/Track=2
+ *
  *   - By Genre                      Music/Genre
  *     - <Genre 1>                   Music/Genre=252
  *       - By Artist                 Music/Genre=252/Artist
@@ -82,6 +99,9 @@ UPnpCDSMusic::UPnpCDSMusic()
     m_shortcuts.insert(UPnPShortcutFeature::MUSIC_GENRES, "Music/Genre");
     m_shortcuts.insert(UPnPShortcutFeature::MUSIC_RECENTLY_ADDED, "Music/Recently Added");
     m_shortcuts.insert(UPnPShortcutFeature::MUSIC_LAST_PLAYED, "Music/Recently Played");
+    m_shortcuts.insert(UPnPShortcutFeature::MUSIC_TOP_PLAYED_ARTIST, "Music/Top Played Artist");
+    m_shortcuts.insert(UPnPShortcutFeature::MUSIC_TOP_PLAYED_ALBUM, "Music/Top Played Album");
+    m_shortcuts.insert(UPnPShortcutFeature::MUSIC_RANDOM_ARTIST, "Music/Random Artist");
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -202,6 +222,48 @@ void UPnpCDSMusic::CreateRoot()
                                               NULL );
     // HACK
     LoadAlbums(pRequest, pResult, tokens);
+    pContainer->SetChildCount(pResult->m_nTotalMatches);
+    pContainer->SetChildContainerCount(pResult->m_nTotalMatches);
+    // END HACK
+    m_pRoot->AddChild(pContainer);
+
+    // -----------------------------------------------------------------------
+    // Top Played Artist
+    // -----------------------------------------------------------------------
+    pContainer = CDSObject::CreateContainer ( containerId.arg("Top Played Artist"),
+                                              QObject::tr("Top Played Artist"),
+                                              m_sExtensionId, // Parent Id
+                                              NULL );
+    // HACK
+    LoadArtists(pRequest, pResult, tokens);
+    pContainer->SetChildCount(pResult->m_nTotalMatches);
+    pContainer->SetChildContainerCount(pResult->m_nTotalMatches);
+    // END HACK
+    m_pRoot->AddChild(pContainer);
+
+    // -----------------------------------------------------------------------
+    // Top Played Album
+    // -----------------------------------------------------------------------
+    pContainer = CDSObject::CreateContainer ( containerId.arg("Top Played Album"),
+                                              QObject::tr("Top Played Album"),
+                                              m_sExtensionId, // Parent Id
+                                              NULL );
+    // HACK
+    LoadAlbums(pRequest, pResult, tokens);
+    pContainer->SetChildCount(pResult->m_nTotalMatches);
+    pContainer->SetChildContainerCount(pResult->m_nTotalMatches);
+    // END HACK
+    m_pRoot->AddChild(pContainer);
+
+    // -----------------------------------------------------------------------
+    // Random Artist
+    // -----------------------------------------------------------------------
+    pContainer = CDSObject::CreateContainer ( containerId.arg("Random Artist"),
+                                              QObject::tr("Random Artist"),
+                                              m_sExtensionId, // Parent Id
+                                              NULL );
+    // HACK
+    LoadArtists(pRequest, pResult, tokens);
     pContainer->SetChildCount(pResult->m_nTotalMatches);
     pContainer->SetChildContainerCount(pResult->m_nTotalMatches);
     // END HACK
@@ -378,6 +440,18 @@ bool UPnpCDSMusic::LoadMetadata(const UPnpCDSRequest* pRequest,
     {
         return LoadAlbums(pRequest, pResults, tokens);
     }
+    else if (currentToken == "top played artist")
+    {
+        return LoadArtists(pRequest, pResults, tokens);
+    }
+    else if (currentToken == "top played album")
+    {
+        return LoadAlbums(pRequest, pResults, tokens);
+    }
+    else if (currentToken == "random artist")
+    {
+        return LoadArtists(pRequest, pResults, tokens);
+    }
     else
         LOG(VB_GENERAL, LOG_ERR,
             QString("UPnpCDSMusic::LoadMetadata(): "
@@ -446,6 +520,27 @@ bool UPnpCDSMusic::LoadChildren(const UPnpCDSRequest* pRequest,
             return LoadTracks(pRequest, pResults, tokens);
         else
             return LoadAlbums(pRequest, pResults, tokens);
+    }
+    else if (currentToken == "top played artist")
+    {
+        if (tokens["top played artist"].toInt() > 0)
+            return LoadTracks(pRequest, pResults, tokens);
+        else
+            return LoadArtists(pRequest, pResults, tokens);
+    }
+    else if (currentToken == "top played album")
+    {
+        if (tokens["top played album"].toInt() > 0)
+            return LoadTracks(pRequest, pResults, tokens);
+        else
+            return LoadAlbums(pRequest, pResults, tokens);
+    }
+    else if (currentToken == "random artist")
+    {
+        if (tokens["random artist"].toInt() > 0)
+            return LoadTracks(pRequest, pResults, tokens);
+        else
+            return LoadArtists(pRequest, pResults, tokens);
     }
     else
         LOG(VB_GENERAL, LOG_ERR,
@@ -583,6 +678,8 @@ bool UPnpCDSMusic::LoadAlbums(const UPnpCDSRequest *pRequest,
         orderString = "ORDER BY max(s.date_entered) DESC ";
     else if (tokens.contains("recently played"))
         orderString = "ORDER BY max(s.lastplay) DESC ";
+    else if (tokens.contains("top played album"))
+        orderString = "ORDER BY sum(s.numplays) DESC ";
     else
         orderString = "ORDER BY a.album_name ";
 
@@ -670,14 +767,21 @@ bool UPnpCDSMusic::LoadArtists(const UPnpCDSRequest *pRequest,
                   "LEFT JOIN music_genres g ON s.genre_id = g.genre_id "
                   "%1 " // WHERE clauses
                   "GROUP BY t.artist_id "
-                  "ORDER BY t.artist_name "
+                  "%2 " // ORDER clauses
                   "LIMIT :OFFSET,:COUNT";
-
 
     QStringList clauses;
     QString whereString = BuildWhereClause(clauses, tokens);
+    QString orderString = "";
 
-    query.prepare(sql.arg(whereString));
+    if (tokens.contains("top played artist"))
+        orderString = "ORDER BY sum(s.numplays) DESC ";
+    else if (tokens.contains("random artist"))
+        orderString = "ORDER BY RAND() ";
+    else
+        orderString = "ORDER BY t.artist_name ";
+
+    query.prepare(sql.arg(whereString).arg(orderString));
 
     BindValues(query, tokens);
 
@@ -1044,6 +1148,12 @@ QString UPnpCDSMusic::BuildWhereClause( QStringList clauses,
         clauses.append("s.album_id=:ALBUM_ID");
     if (tokens["recently played"].toInt() > 0)
         clauses.append("s.album_id=:ALBUM_ID");
+    if (tokens["top played artist"].toInt() > 0)
+        clauses.append("s.artist_id=:ARTIST_ID");
+    if (tokens["top played album"].toInt() > 0)
+        clauses.append("s.album_id=:ALBUM_ID");
+    if (tokens["random artist"].toInt() > 0)
+        clauses.append("s.artist_id=:ARTIST_ID");
     if (tokens["directory"].toInt() > 0)
         clauses.append("s.directory_id=:DIRECTORY_ID");
 
@@ -1085,6 +1195,12 @@ void UPnpCDSMusic::BindValues( MSqlQuery &query,
         query.bindValue(":ALBUM_ID", tokens["recently added"]);
     if (tokens["recently played"].toInt() > 0)
         query.bindValue(":ALBUM_ID", tokens["recently played"]);
+    if (tokens["top played artist"].toInt() > 0)
+        query.bindValue(":ARTIST_ID", tokens["top played artist"]);
+    if (tokens["top played album"].toInt() > 0)
+        query.bindValue(":ALBUM_ID", tokens["top played album"]);
+    if (tokens["random artist"].toInt() > 0)
+        query.bindValue(":ARTIST_ID", tokens["random artist"]);
     if (tokens["directory"].toInt() > 0)
         query.bindValue(":DIRECTORY_ID", tokens["directory"]);
 }
