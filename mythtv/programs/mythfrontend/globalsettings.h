@@ -151,7 +151,6 @@ class HostRefreshRateComboBoxSetting : public HostComboBoxSetting
         HostComboBoxSetting(name) { }
     virtual ~HostRefreshRateComboBoxSetting() { }
 
-#if defined(USING_XRANDR)
   public slots:
 #if defined(USING_XRANDR) || CONFIG_DARWIN
     virtual void ChangeResolution(StandardSetting *);
