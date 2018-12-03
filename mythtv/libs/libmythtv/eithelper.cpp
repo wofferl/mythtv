@@ -1287,17 +1287,27 @@ static void init_fixup(FixupMap &fix)
         EITFixUp::kEFixForceISO8859_9;
 
     // DVB-C Kabel Deutschland encoding fixes Germany
+    fix[  1051LL << 32 | 1U << 16] = EITFixUp::kFixKD;
+    fix[  1073LL << 32 | 1U << 16] = EITFixUp::kFixKD;
+    fix[  1079LL << 32 | 1U << 16] = EITFixUp::kFixKD;
+    fix[  1101LL << 32 | 1U << 16] = EITFixUp::kFixKD;
     fix[   112LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
     fix[ 10000LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
     fix[ 10001LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
     fix[ 10002LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
     fix[ 10003LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
-    fix[ 10006LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
-    fix[ 10009LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
-    fix[ 10010LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15;
+    fix[ 10006LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15 | EITFixUp::kFixKD;
+    fix[ 10009LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15 | EITFixUp::kFixKD;
+    fix[ 10010LL << 32 | 61441U << 16] = EITFixUp::kEFixForceISO8859_15 | EITFixUp::kFixKD;
+    fix[ 10011LL << 32 | 61441U << 16] = EITFixUp::kFixKD;
     // Mark program on the HD transponders as HDTV
-    fix[ 10012LL << 32 | 61441U << 16] = EITFixUp::kFixHDTV;
-    fix[ 10013LL << 32 | 61441U << 16] = EITFixUp::kFixHDTV;
+    fix[ 10012LL << 32 | 61441U << 16] = EITFixUp::kFixHDTV | EITFixUp::kFixKD;
+    fix[ 10013LL << 32 | 61441U << 16] = EITFixUp::kFixHDTV | EITFixUp::kFixKD;
+    fix[ 10014LL << 32 | 61441U << 16] = EITFixUp::kFixKD;
+    fix[ 10015LL << 32 | 61441U << 16] = EITFixUp::kFixKD;
+    fix[ 10016LL << 32 | 61441U << 16] = EITFixUp::kFixKD;
+    fix[ 10017LL << 32 | 61441U << 16] = EITFixUp::kFixKD;
+    fix[ 10020LL << 32 | 61441U << 16] = EITFixUp::kFixKD;
     // On transport 10004 only DMAX needs no fixing:
     fix[10004LL<<32 | 61441U << 16 | 50403] = // BBC World Service
     fix[10004LL<<32 | 61441U << 16 | 53101] = // BBC Prime (engl)

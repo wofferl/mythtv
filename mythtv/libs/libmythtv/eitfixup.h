@@ -59,6 +59,7 @@ class EITFixUp
         kFixUnitymedia       = 1ull << 32,
         kFixATV              = 1ull << 33,
         kFixDisneyChannel    = 1ull << 34,
+        kFixKD		     = 1ull << 35,
 
         // Early fixups
         kEFixForceISO8859_1  = 1 << 22,
@@ -118,6 +119,7 @@ class EITFixUp
     void FixGreekEIT(DBEventEIT &event) const;
     void FixGreekCategories(DBEventEIT &event) const; // Greek categories from descr.
     void FixUnitymedia(DBEventEIT &event) const;    // handle cast/crew from Unitymedia
+    void FixKD(DBEventEIT &event) const;               // German DVB-C
 
     static QString AddDVBEITAuthority(uint chanid, const QString &id);
 
@@ -301,6 +303,16 @@ class EITFixUp
     const QRegExp m_grCategHealth; //Greek category for Health
     const QRegExp m_grCategSpecial; //Greek category for specials.
     const QRegExp m_unitymediaImdbrating; ///< IMDb Rating
+    const QRegExp m_kdEpisode;
+    const QRegExp m_kdPartTotal;
+    const QRegExp m_kdPartNumberSub;
+    const QRegExp m_kdPartNumberDesc;
+    const QRegExp m_kdSeason;
+    const QRegExp m_kdDirector;
+    const QRegExp m_kdActor;
+    const QRegExp m_kdCountry;
+    const QRegExp m_kdCategory;
+    const QRegExp m_kdCatCountry;
 };
 
 #endif // EITFIXUP_H

@@ -44,6 +44,8 @@ const QString shortEp = "(\\d+)\\s*(?:/|of)\\s*(\\d+)";
 const QString shortContext =
         QString("(?:^|\\.)(\\s*\\(*\\s*%1[\\s)]*(?:[).:]|$))").arg(shortEp);
 
+const QString categories =
+        QString("([\\w-]*(?:action|animation|comedy|doku|dramedy|fantasy|horror|info|krimi|magazin|mystery|nachrichten|quiz|reality|reihe|reportage|science-fiction|scripted\\sreality|serie|show|sitcom|soap|sonstige|talk|zeichentrick)[\\w-]*)");
 
 EITFixUp::EITFixUp()
     : m_bellYear("[\\(]{1}[0-9]{4}[\\)]{1}"),
@@ -240,7 +242,24 @@ EITFixUp::EITFixUp()
       m_grCategSciFi("(?:\\W)?(επιστ(.|ημονικ[ηή]ς)\\s?φαντασ[ιί]ας)(?:\\W)?",Qt::CaseInsensitive),
       m_grCategHealth("(?:\\W)?(υγε[ιί]α|υγειιν|ιατρικ|διατροφ)(?:\\W)?",Qt::CaseInsensitive),
       m_grCategSpecial("(?:\\W)?(αφι[εέ]ρωμα)(?:\\W)?",Qt::CaseInsensitive),
-      m_unitymediaImdbrating("\\s*IMDb Rating: (\\d\\.\\d)\\s?/10$")
+      m_unitymediaImdbrating("\\s*IMDb Rating: (\\d\\.\\d)\\s?/10$"),
+      m_kdEpisode("\\s?[\\(]{1}([0-9]+)/?([0-9]*)[\\)]{1}"),
+      m_kdPartTotal("([0-9]+)\\s(?:Episoden|Folgen|Teile)"),
+      m_kdPartNumberSub("(?:Episode|Folge|Teil)\\s([0-9]+):?\\s?"),
+      m_kdPartNumberDesc("(?:Episode|Folge)\\s([0-9]+)"),
+      m_kdSeason("([0-9]+).\\sStaffel\\s?"),
+      // In Hamburg * Reportagereihe, D 2016
+      // Joseph Vilsmaier * Talk, D 2012
+      // (49) * Talk, D 2013 * Mit Nick Wilder
+      // Mein Onkel von der Mafia (10) * Sitcom
+      // (124) * Magazin
+      // * Magazin
+      //  * R: Dror Zahavi, D 2016
+      m_kdDirector("\\*?\\s?\\s?R:\\s([\\w-\\s]+)"),
+      m_kdActor("\\*?\\s?Mit\\s([\\w-\\s]+"),
+      m_kdCountry(",\\s[\\w-/]+\\s(\\d{4})"),
+      m_kdCategory("\\s?[\\*,]\\s" + categories,Qt::CaseInsensitive),
+      m_kdCatCountry("\\s?[\\*,]?\\s?" + categories + ",\\s[\\w-/]+\\s(\\d{4})",Qt::CaseInsensitive)
 {
 }
 
@@ -314,6 +333,9 @@ void EITFixUp::Fix(DBEventEIT &event) const
 
     if (kFixPremiere & event.fixup)
         FixPremiere(event);
+
+    if (kFixKD & event.fixup)
+        FixKD(event);
 
     if (kFixNL & event.fixup)
         FixNL(event);
@@ -3003,5 +3025,224 @@ void EITFixUp::FixUnitymedia(DBEventEIT &event) const
         float stars = tmp.cap(1).toFloat();
         event.stars = stars / 10.0f;
         event.description.replace (m_unitymediaImdbrating, "");
+    }
+}
+
+/** \fn EITFixUp::FixKD(DBEventEIT&) const
+ *  \brief Use this to standardize DVB-C guide in Germany
+ *         for the provider Kabel Deutschland.
+ */
+void EITFixUp::FixKD(DBEventEIT &event) const
+{
+    int position1 = -1;
+    int position2 = -1;
+
+    QRegExp tmp = m_kdEpisode;
+
+    if ((position1 = tmp.indexIn(event.title)) != -1
+            || (position2 = tmp.indexIn(event.subtitle)) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            event.episode = tmp.cap(1).toUInt();
+        }
+        if (!tmp.cap(2).isEmpty())
+        {
+            event.totalepisodes = tmp.cap(2).toUInt();
+        }
+        if (position1 != -1)
+        {
+                LOG(VB_EIT, LOG_DEBUG, QString("Extracted %1/%2 from title (%3)")
+                    .arg(event.episode).arg(event.totalepisodes)
+                    .arg(event.title));
+
+                event.title.remove(tmp);
+        }
+        if (position2 != -1)
+        {
+                LOG(VB_EIT, LOG_DEBUG, QString("Extracted %1/%2 from subtitle (%3)")
+                    .arg(event.episode).arg(event.totalepisodes)
+                    .arg(event.subtitle));
+
+                event.subtitle.remove(tmp);
+        }
+        event.categoryType = ProgramInfo::kCategorySeries;
+    }
+    tmp = m_kdPartNumberSub;
+    if (tmp.indexIn(event.subtitle) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            event.episode = tmp.cap(1).toUInt();
+            LOG(VB_EIT, LOG_DEBUG, QString("Extracted episode %1 from subtitle (%2)")
+                 .arg(event.episode)
+                 .arg(event.subtitle));
+
+            event.subtitle.remove(tmp);
+            event.categoryType = ProgramInfo::kCategorySeries;
+        }
+    }
+    tmp = m_kdPartNumberDesc;
+    if (tmp.indexIn(event.description) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            event.episode = tmp.cap(1).toUInt();
+            event.categoryType = ProgramInfo::kCategorySeries;
+        }
+    }
+    tmp = m_kdPartTotal;
+    if ((position1 = tmp.indexIn(event.subtitle)) != -1
+            || tmp.indexIn(event.description) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            event.totalepisodes = tmp.cap(1).toUInt();
+        }
+        if (position1 != -1)
+        {
+                LOG(VB_EIT, LOG_DEBUG, QString("Extracted totalepisodes %1 from subtitle (%2)")
+                    .arg(event.totalepisodes)
+                    .arg(event.subtitle));
+
+                event.subtitle.remove(tmp);
+        }
+        event.categoryType = ProgramInfo::kCategorySeries;
+    }
+    tmp = m_kdSeason;
+    if ((position1 = tmp.indexIn(event.subtitle)) != -1
+            || tmp.indexIn(event.description) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            event.season = tmp.cap(1).toUInt();
+        }
+        if (position1 != -1)
+        {
+                LOG(VB_EIT, LOG_DEBUG, QString("Extracted season %1 from subtitle (%2)")
+                    .arg(event.season)
+                    .arg(event.subtitle));
+
+                event.subtitle.remove(tmp);
+        }
+        event.categoryType = ProgramInfo::kCategorySeries;
+    }
+    tmp = m_kdCatCountry;
+    if (tmp.indexIn(event.subtitle) != -1)
+    {
+        if (!tmp.cap(1).isEmpty() && event.category.isEmpty())
+        {
+            event.category = tmp.cap(1);
+        }
+        LOG(VB_EIT, LOG_DEBUG, QString("Removed CatCountry from subtitle (%1)")
+            .arg(event.subtitle));
+
+        event.subtitle.remove(tmp);
+    }
+    tmp = m_kdCategory;
+    if (tmp.indexIn(event.subtitle) != -1)
+    {
+        if (!tmp.cap(1).isEmpty() && event.category.isEmpty())
+        {
+            event.category = tmp.cap(1);
+        }
+        LOG(VB_EIT, LOG_DEBUG, QString("Removed Category from subtitle (%1)")
+            .arg(event.subtitle));
+
+        event.subtitle.remove(tmp);
+    }
+    tmp = m_kdDirector;
+    if (tmp.indexIn(event.subtitle) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            event.AddPerson(DBPerson::kDirector, tmp.cap(1).trimmed());
+        }
+        LOG(VB_EIT, LOG_DEBUG, QString("Removed Director from subtitle (%1)")
+            .arg(event.subtitle));
+
+        event.subtitle.remove(tmp);
+    }
+    tmp = m_kdActor;
+    if (tmp.indexIn(event.subtitle) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            event.AddPerson(DBPerson::kActor, tmp.cap(1).trimmed());
+        }
+        LOG(VB_EIT, LOG_DEBUG, QString("Removed Actor from subtitle (%1)")
+            .arg(event.subtitle));
+
+        event.subtitle.remove(tmp);
+    }
+    tmp = m_kdCountry;
+    if (tmp.indexIn(event.subtitle) != -1)
+    {
+        if (!tmp.cap(1).isEmpty())
+        {
+            bool ok;
+            uint y = tmp.cap(1).toUInt(&ok);
+            event.airdate = y;
+            event.originalairdate = QDate(y, 1, 1);
+        }
+        LOG(VB_EIT, LOG_DEBUG, QString("Removed Country from subtitle (%1)")
+            .arg(event.subtitle));
+
+        event.subtitle.remove(tmp);
+    }
+    if(event.categoryType == ProgramInfo::kCategoryNone)
+    {
+        if (event.category.contains("Serie",Qt::CaseInsensitive) ||
+            event.category.contains("Sitcom",Qt::CaseInsensitive) ||
+            event.category.contains("Soap",Qt::CaseInsensitive) ||
+            event.category.contains("Magazin",Qt::CaseInsensitive) ||
+            event.category.contains("Dramedy",Qt::CaseInsensitive) ||
+            event.category.contains("Reihe",Qt::CaseInsensitive))
+        {
+                event.categoryType = ProgramInfo::kCategorySeries;
+        }
+        else if (event.category.contains("Sport",Qt::CaseInsensitive) ||
+            event.category.contains("Ball",Qt::CaseInsensitive) ||
+            event.category.contains("Eishockey",Qt::CaseInsensitive) ||
+            event.category.contains("Tennis",Qt::CaseInsensitive))
+        {
+                event.categoryType = ProgramInfo::kCategorySports;
+        }
+        else if (event.category.contains("Show",Qt::CaseInsensitive) ||
+            event.category.contains("Talk",Qt::CaseInsensitive) ||
+            event.category.contains("Quiz",Qt::CaseInsensitive) ||
+            event.category.contains("Reality",Qt::CaseInsensitive))
+        {
+                event.categoryType = ProgramInfo::kCategoryTVShow;
+        }
+        else if (event.category.contains("Movie",Qt::CaseInsensitive) ||
+            event.category.contains("Action",Qt::CaseInsensitive) ||
+            event.category.contains("Animation",Qt::CaseInsensitive) ||
+            event.category.contains("Comedy",Qt::CaseInsensitive) ||
+            event.category.contains("Fantasy",Qt::CaseInsensitive) ||
+            event.category.contains("Horror",Qt::CaseInsensitive) ||
+            event.category.contains("Krimi",Qt::CaseInsensitive) ||
+            event.category.contains("Mystery",Qt::CaseInsensitive) ||
+            event.category.contains("Science-Fiction",Qt::CaseInsensitive) ||
+            event.category.contains("Zeichentrick",Qt::CaseInsensitive) ||
+            event.category.contains("Film",Qt::CaseInsensitive))
+        {
+                event.categoryType = ProgramInfo::kCategoryMovie;
+        }
+        else
+        {
+                event.categoryType = ProgramInfo::kCategoryNone;
+        }
+    }
+    if(event.category.isEmpty())
+    {
+        if(event.categoryType == ProgramInfo::kCategoryMovie)
+            event.category = "Movie";
+        else if(event.categoryType == ProgramInfo::kCategorySeries)
+            event.category = "Serie";
+        else if(event.categoryType == ProgramInfo::kCategorySports)
+            event.category = "Sport";
+        else if(event.categoryType == ProgramInfo::kCategoryTVShow)
+            event.category = "Show";
     }
 }
