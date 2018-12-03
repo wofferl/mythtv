@@ -786,6 +786,43 @@ void TestEITFixups::testATV()
     delete event;
 }
 
+void TestEITFixups::testKD()
+{
+    EITFixUp fixup;
+
+    DBEventEIT *event = SimpleDBEventEIT (EITFixUp::kFixKD,
+                                         "Doctor Who (10)",
+                                         "Der Doktor tanzt",
+                                         "");
+
+    PRINT_EVENT(*event);
+    fixup.Fix(*event);
+    PRINT_EVENT(*event);
+    QCOMPARE(event->title,    QString("Doctor Who"));
+    QCOMPARE(event->subtitle, QString("Der Doktor tanzt"));
+    QCOMPARE(event1.episode,       10u);
+    QCOMPARE(event1.totalepisodes, 0u);
+    QCOMPARE(event->categoryType, ProgramInfo::kCategorySeries);
+
+    delete event;
+
+
+    DBEventEIT *event2 = SimpleDBEventEIT (EITFixUp::kFixKD,
+                                         "Doctor Who",
+                                         "Der Doktor tanzt (10/13) * Actionserie, GB 2005",
+                                          "");
+
+    PRINT_EVENT(*event2);
+    fixup.Fix(*event2);
+    PRINT_EVENT(*event2);
+    QCOMPARE(event2.episode,       10u);
+    QCOMPARE(event2.totalepisodes, 13u);
+    QCOMPARE(event2->title,    QString("Doctor Who"));
+    QCOMPARE(event2->subtitle, QString("Der Doktor tanzt * Actionserie, GB 2005"));
+
+    delete event2;
+}
+
 void TestEITFixups::test64BitEnum(void)
 {
     QVERIFY(EITFixUp::kFixUnitymedia != EITFixUp::kFixNone);
