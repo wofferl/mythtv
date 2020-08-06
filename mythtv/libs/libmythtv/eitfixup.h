@@ -317,6 +317,7 @@ class EITFixUp
     const QRegExp m_kdCountry;
     const QRegExp m_kdCategory;
     const QRegExp m_kdCatCountry;
+    const QRegExp m_kdAgeRating;
 };
 
 #endif // EITFIXUP_H

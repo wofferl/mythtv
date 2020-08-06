@@ -265,7 +265,8 @@ EITFixUp::EITFixUp()
       m_kdActor("\\*?\\s?Mit\\s([\\w-\\s]+"),
       m_kdCountry(",\\s[\\w-/]+\\s(\\d{4})"),
       m_kdCategory("\\s?[\\*,]\\s" + categories,Qt::CaseInsensitive),
-      m_kdCatCountry("\\s?[\\*,]?\\s?" + categories + ",\\s[\\w-/]+\\s(\\d{4})",Qt::CaseInsensitive)
+      m_kdCatCountry("\\s?[\\*,]?\\s?" + categories + ",\\s[\\w-/]+\\s(\\d{4})",Qt::CaseInsensitive),
+      m_kdAgeRating("\\nAltersfreigabe:\\s\\w+\\s[\\w\\d]+")
 {
 }
 
@@ -3272,6 +3273,14 @@ void EITFixUp::FixKD(DBEventEIT &event) const
             event.originalairdate = QDate(y, 1, 1);
         }
         LOG(VB_EIT, LOG_DEBUG, QString("Removed Country from subtitle (%1)")
+            .arg(event.subtitle));
+
+        event.subtitle.remove(tmp);
+    }
+    tmp = m_kdAgeRating;
+    if (tmp.indexIn(event.subtitle) != -1)
+    {
+        LOG(VB_EIT, LOG_DEBUG, QString("Removed AgeRating from subtitle (%1)")
             .arg(event.subtitle));
 
         event.subtitle.remove(tmp);
