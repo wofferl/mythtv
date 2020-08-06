@@ -321,11 +321,15 @@ bool DVBChannel::Open(DVBChannel *who)
                 // TODO: not supported. you can have DVBC and DVBT on the same card
                 // The following are backwards compatible so its ok
                 case SYS_DVBS2:
-                    tunerType = DTVTunerType::kTunerTypeDVBS2;
+		    tunerType = DTVTunerType::kTunerTypeDVBS2;
                     break;
                 case SYS_DVBT2:
-                    tunerType = DTVTunerType::kTunerTypeDVBT2;
+                    // Prefer the DVBC Tuner instead of the T2 Tuner
+ 		    if (tunerType != DTVTunerType::kTunerTypeDVBC) tunerType = DTVTunerType::kTunerTypeDVBT2;
                     break;
+ 		case SYS_DVBC_ANNEX_AC:
+ 		    tunerType = DTVTunerType::kTunerTypeDVBC;
+ 		    break;
                 default:
                     break;
             }
